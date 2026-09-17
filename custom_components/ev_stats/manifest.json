@@ -1,9 +1,13 @@
 {
   "domain": "ev_stats",
   "name": "EV Stats",
-  "codeowners": ["@shanehughes-ui"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@shanehughes-ui"
+  ],
   "config_flow": true,
-  "after_dependencies": ["recorder"],
   "documentation": "https://github.com/shanehughes-ui/ha-ev-stats-integration",
   "integration_type": "service",
   "iot_class": "calculated",
