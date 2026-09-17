@@ -1,0 +1,128 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EV Stats",
+        "description": "Only four entities are needed to start. Everything else — house load, solar, prices, tyres, carbon — is optional and is configured afterwards.",
+        "data": {
+          "charging_power": "Charging power",
+          "odometer": "Odometer",
+          "battery": "State of charge",
+          "home_zone": "Home zone"
+        },
+        "data_description": {
+          "charging_power": "The car's charging power in kW. Every energy figure here is integrated from this.",
+          "odometer": "Total distance. Used for trips, consumption and the petrol comparison.",
+          "battery": "Battery percentage. Used as a boundary between two charges, never as an energy meter.",
+          "home_zone": "Used to recognise charging at home."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "That car is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EV Stats options",
+        "description": "Every field here is optional. Leaving one empty removes the sensors that depend on it rather than reporting a zero.",
+        "sections": {
+          "car": {
+            "name": "The car",
+            "description": "Extra signals from the vehicle. Each one adds sensors; none is required.",
+            "data": {
+              "charge_current": "Charge current",
+              "charge_voltage": "Charge voltage",
+              "device_tracker": "Location tracker",
+              "engine_state": "Engine state",
+              "charger_plug": "Charger plugged in",
+              "charger_connection": "Charger connection",
+              "efficiency": "Efficiency (km/kWh)",
+              "trip_consumption": "Trip consumption",
+              "days_to_service": "Days to service",
+              "distance_to_service": "Distance to service",
+              "voltage_12v": "12 V battery voltage",
+              "tyre_pressure": "Tyre pressure (all four)",
+              "tyre_temperature": "Tyre temperature (all four)"
+            },
+            "data_description": {
+              "engine_state": "Used to detect trips. Far more reliable than speed, which reads zero at every set of lights.",
+              "device_tracker": "Only trusted when the odometer has not moved since the fix was taken."
+            }
+          },
+          "location": {
+            "name": "Location",
+            "description": "Where charging counts as free, and how close is close enough.",
+            "data": {
+              "work_zones": "Free-charging zones",
+              "home_radius_m": "Home radius",
+              "work_radius_m": "Free-zone radius"
+            },
+            "data_description": {
+              "work_zones": "Zones where charging costs nothing — a workplace charger, for instance. Each becomes its own bucket."
+            }
+          },
+          "house": {
+            "name": "The house",
+            "description": "Without house load the integration cannot prove a charge happened here, and falls back to location alone.",
+            "data": {
+              "house_load": "House load",
+              "solar_power": "Solar output",
+              "solar_curtailment": "Solar curtailment"
+            }
+          },
+          "pricing": {
+            "name": "Prices and carbon",
+            "data": {
+              "import_price": "Grid import price",
+              "export_price": "Feed-in price",
+              "fuel_price": "Petrol price",
+              "co2_intensity": "Grid carbon intensity"
+            },
+            "data_description": {
+              "export_price": "Solar sent to the car is priced at the feed-in it gave up, not at zero."
+            }
+          },
+          "extras": {
+            "name": "Extras",
+            "data": {
+              "ambient_temp": "Outside temperature",
+              "notify_target": "Notification service"
+            },
+            "data_description": {
+              "ambient_temp": "Recorded with each pack measurement. A cold pack charges less efficiently, and that seasonal swing can exceed the degradation being looked for.",
+              "notify_target": "For example notify.mobile_app_pixel. Session summaries with correction buttons go here."
+            }
+          },
+          "thresholds": {
+            "name": "Thresholds",
+            "description": "Defaults are measured values, not guesses. Change them only with evidence.",
+            "data": {
+              "home_ratio_yes": "House-supply ratio: yes",
+              "home_ratio_no": "House-supply ratio: no",
+              "min_kwh": "Minimum session energy",
+              "min_hours": "Minimum session length",
+              "dc_min_kw": "DC power threshold",
+              "charge_efficiency": "Charging efficiency",
+              "petrol_l_per_100km": "Petrol car consumption",
+              "install_odometer": "Odometer at install"
+            },
+            "data_description": {
+              "min_kwh": "Below this the house-load test is noise, so it declines to answer rather than guessing.",
+              "charge_efficiency": "Wall to pack. Cancels out of a degradation trend, so its exact value matters less than its consistency.",
+              "install_odometer": "Set this to the odometer reading now. Consumption is measured from here, not from the car's whole life."
+            }
+          }
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "distance_since_install": {
+        "name": "Distance since install"
+      }
+    }
+  }
+}
