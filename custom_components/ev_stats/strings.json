@@ -122,6 +122,50 @@
     "sensor": {
       "distance_since_install": {
         "name": "Distance since install"
+      },
+      "charge_energy": {
+        "name": "Charge energy"
+      },
+      "bucket_energy": {
+        "name": "{bucket}"
+      },
+      "energy_total": {
+        "name": "Energy total"
+      },
+      "balance_check": {
+        "name": "Balance check"
+      },
+      "unattributed_floor": {
+        "name": "Unattributed floor"
+      }
+    },
+    "select": {
+      "route": {
+        "name": "Charging attributed to"
+      }
+    }
+  },
+  "services": {
+    "move_energy": {
+      "name": "Move energy between buckets",
+      "description": "Reattribute charging energy from one place to another. Refuses rather than clamping if the source bucket does not hold enough, so the buckets always sum to the metered total.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Car",
+          "description": "Which EV Stats entry to act on."
+        },
+        "source_bucket": {
+          "name": "From",
+          "description": "The bucket the energy is currently in, for example unknown."
+        },
+        "target_bucket": {
+          "name": "To",
+          "description": "Where it should go instead, for example home."
+        },
+        "kwh": {
+          "name": "Energy",
+          "description": "How much to move, in kWh."
+        }
       }
     }
   }
