@@ -9,6 +9,12 @@ out. A car drawing a steady 6.8 kW emits no state *changes* for hours, so a pure
 state-change integrator records almost nothing for a session that plainly
 happened. The fix is one idea: when the timer fires rather than a state change
 there is only one reading, so integrate a flat line across the elapsed time.
+
+Two things are integrated here. Entity readings - the car's power, the house
+load - and *computed* rates, which are what charging costs and what carbon it
+incurs per hour. The second kind has no entity of its own to read, so the
+general form takes a function and a list of entities to watch, and the entity
+case is the special case of it.
 """
 
 from __future__ import annotations
@@ -31,18 +37,31 @@ _LOGGER = logging.getLogger(__name__)
 _UNUSABLE = ("unknown", "unavailable", "", None)
 
 
-class SourceIntegrator:
-    """Integrates a Home Assistant entity, in whatever units it reports."""
+def read_entity(hass: HomeAssistant, entity_id: str) -> Decimal | None:
+    """An entity's state as a Decimal, or None if it cannot be read."""
+    state = hass.states.get(entity_id)
+    if state is None or state.state in _UNUSABLE:
+        return None
+    try:
+        return Decimal(state.state)
+    except (DecimalException, TypeError, ValueError):
+        return None
+
+
+class ValueIntegrator:
+    """Integrates whatever `read` returns, in whatever units it returns it."""
 
     def __init__(
         self,
         hass: HomeAssistant,
-        source_entity: str,
+        watch: list[str],
+        read: Callable[[], Decimal | None],
         max_sub_interval: float,
         on_change: Callable[[Decimal], None],
     ) -> None:
         self.hass = hass
-        self.source_entity = source_entity
+        self._watch = [e for e in watch if e]
+        self._read = read
         self._max_sub_interval = max_sub_interval
         self._on_change = on_change
         self._integrator = TrapezoidIntegrator()
@@ -56,15 +75,21 @@ class SourceIntegrator:
     def total(self) -> Decimal:
         return self._integrator.total
 
+    @property
+    def current(self) -> Decimal | None:
+        """The rate right now, for a sensor that wants to publish it."""
+        return self._read()
+
     def restore(self, total: Decimal) -> None:
         self._integrator.total = Decimal(total)
 
     # ----------------------------------------------------------- lifecycle --
     @callback
     def async_start(self) -> None:
-        self._unsub = async_track_state_change_event(
-            self.hass, [self.source_entity], self._handle_state
-        )
+        if self._watch:
+            self._unsub = async_track_state_change_event(
+                self.hass, self._watch, self._handle_state
+            )
         if (value := self._read()) is not None:
             self._integrator.seed(value)
             self._last_ts = dt_util.utcnow().timestamp()
@@ -79,15 +104,6 @@ class SourceIntegrator:
             self._unsub = None
 
     # ------------------------------------------------------------ internals --
-    def _read(self) -> Decimal | None:
-        state = self.hass.states.get(self.source_entity)
-        if state is None or state.state in _UNUSABLE:
-            return None
-        try:
-            return Decimal(state.state)
-        except (DecimalException, TypeError, ValueError):
-            return None
-
     @callback
     def _cancel_pending(self) -> None:
         if self._cancel_timer is not None:
@@ -105,7 +121,7 @@ class SourceIntegrator:
 
     @callback
     def _handle_state(self, event: Event[EventStateChangedData]) -> None:
-        """A real reading arrived."""
+        """A watched input changed, so the value may have."""
         self._cancel_pending()
         now = dt_util.utcnow().timestamp()
         value = self._read()
@@ -119,14 +135,11 @@ class SourceIntegrator:
             return
 
         if self._last_ts is not None and self._integrator.last_value is not None:
-            elapsed = Decimal(str(now - self._last_ts))
-            if self._last_trigger is Trigger.ELAPSED:
-                # The left edge is synthetic: the timer already integrated a
-                # flat line up to _last_ts, so only the remainder is owed, and
-                # it is a trapezoid from that same held value to this one.
-                self._integrator.add_two_states(elapsed, value)
-            else:
-                self._integrator.add_two_states(elapsed, value)
+            # A trapezoid from the held value to this one, whether the left edge
+            # was a real reading or one the timer invented - the timer has
+            # already integrated the flat line up to _last_ts, so only the
+            # remainder is owed either way.
+            self._integrator.add_two_states(Decimal(str(now - self._last_ts)), value)
         else:
             self._integrator.seed(value)
 
@@ -137,7 +150,7 @@ class SourceIntegrator:
 
     @callback
     def _handle_elapsed(self, _now) -> None:
-        """No state change for max_sub_interval. Integrate a flat line."""
+        """No change for max_sub_interval. Integrate a flat line."""
         self._cancel_timer = None
         now = dt_util.utcnow().timestamp()
 
@@ -148,3 +161,23 @@ class SourceIntegrator:
         self._last_ts = now
         self._last_trigger = Trigger.ELAPSED
         self._arm_timer()
+
+
+class SourceIntegrator(ValueIntegrator):
+    """Integrates one Home Assistant entity."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        source_entity: str,
+        max_sub_interval: float,
+        on_change: Callable[[Decimal], None],
+    ) -> None:
+        self.source_entity = source_entity
+        super().__init__(
+            hass,
+            [source_entity],
+            lambda: read_entity(hass, source_entity),
+            max_sub_interval,
+            on_change,
+        )

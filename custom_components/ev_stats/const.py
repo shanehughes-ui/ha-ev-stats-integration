@@ -47,6 +47,10 @@ CONF_DISTANCE_TO_SERVICE: Final = "distance_to_service"
 CONF_12V_VOLTAGE: Final = "voltage_12v"
 CONF_TYRE_PRESSURE: Final = "tyre_pressure"        # list, 4 entities
 CONF_TYRE_TEMPERATURE: Final = "tyre_temperature"  # list, 4 entities
+# Locks, doors, bonnet, boot, windows - any mix, any number. A single list
+# rather than one key per opening: cars disagree about which they expose, and
+# the summary only has to say whether anything is open and name it.
+CONF_SECURITY_ENTITIES: Final = "security_entities"
 
 # --- location ---------------------------------------------------------------
 # Work zones are a LIST. The original package hard-coded a single `allison_work`
@@ -187,3 +191,17 @@ TRIP_MAX_KM: Final = 500.0
 SESSIONS_IN_ATTRIBUTES: Final = 20
 TRIPS_IN_ATTRIBUTES: Final = 40
 ESTIMATES_IN_ATTRIBUTES: Final = 60
+
+# --- tyres -------------------------------------------------------------------
+# Thirty days, because the drift being looked for is a slow leak and a shorter
+# window would track the leak rather than reveal it.
+TYRE_BASELINE_MAX_AGE_S: Final = 30 * 24 * 3600
+TYRE_BASELINE_MAX_SAMPLES: Final = 3000
+# Lower than the house baseline needs: a tyre baseline is compared against
+# itself over weeks, so a third of a window is already a useful reference.
+TYRE_BASELINE_MIN_COVERAGE: Final = 0.3
+
+# --- petrol comparison -------------------------------------------------------
+# The same delta guard the trip log uses. Anything outside it is a glitched
+# odometer reading, not a drive.
+PETROL_MAX_KM_STEP: Final = 500.0

@@ -45,12 +45,14 @@
               "voltage_12v": "12 V battery voltage",
               "tyre_pressure": "Tyre pressure (all four)",
               "tyre_temperature": "Tyre temperature (all four)",
-              "supply_source": "AC/DC supply"
+              "supply_source": "AC/DC supply",
+              "security_entities": "Locks, doors and windows"
             },
             "data_description": {
               "engine_state": "Used to detect trips. Far more reliable than speed, which reads zero at every set of lights.",
               "device_tracker": "Only trusted when the odometer has not moved since the fix was taken.",
-              "supply_source": "An entity reading AC or DC. Only a DC session can be classed as public fast charging; without this signal that verdict is never reached, rather than being guessed from how fast the car is charging."
+              "supply_source": "An entity reading AC or DC. Only a DC session can be classed as public fast charging; without this signal that verdict is never reached, rather than being guessed from how fast the car is charging.",
+              "security_entities": "Any mix of locks, door and boot sensors and window covers. Summarised read-only - this integration never sends a command to a car, and a lock entity on a dashboard is a button that unlocks it."
             }
           },
           "location": {
@@ -171,6 +173,78 @@
       },
       "pack_estimate": {
         "name": "Usable pack size"
+      },
+      "free_energy": {
+        "name": "Free energy"
+      },
+      "free_share": {
+        "name": "Free share"
+      },
+      "work_share": {
+        "name": "Work share"
+      },
+      "solar_share_home": {
+        "name": "Home solar share"
+      },
+      "cost_total": {
+        "name": "Charging cost"
+      },
+      "cost_per_100km": {
+        "name": "Cost per 100 km"
+      },
+      "home_charging_cost_rate": {
+        "name": "Home charging cost rate"
+      },
+      "free_charging_value": {
+        "name": "Free charging value"
+      },
+      "petrol_cost_avoided": {
+        "name": "Petrol cost avoided"
+      },
+      "net_saving": {
+        "name": "Net saving"
+      },
+      "consumption_since_install": {
+        "name": "Consumption"
+      },
+      "consumption_car": {
+        "name": "Consumption (car)"
+      },
+      "consumption_now": {
+        "name": "Consumption now"
+      },
+      "charge_co2": {
+        "name": "Charging carbon"
+      },
+      "co2_avoided": {
+        "name": "Carbon avoided"
+      },
+      "home_solar_rate": {
+        "name": "Home solar rate"
+      },
+      "home_solar_energy": {
+        "name": "Home solar energy"
+      },
+      "tyre_lowest_cold": {
+        "name": "Lowest tyre"
+      },
+      "tyre_drift": {
+        "name": "Tyre drift"
+      },
+      "activity": {
+        "name": "Activity"
+      },
+      "km_per_day": {
+        "name": "Distance per day"
+      },
+      "service_due_in": {
+        "name": "Service due in"
+      },
+      "secure": {
+        "name": "Security"
+      },
+      "public_dc_cost": {
+        "name": "Public charging cost"
       }
     },
     "select": {

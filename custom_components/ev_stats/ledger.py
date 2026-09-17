@@ -188,22 +188,21 @@ class Ledger:
             await self._async_persist()
         self._notify()
 
-    async def async_accrue(
-        self,
-        metered_total: Decimal,
-        cost_total: Decimal | None = None,
-        solar_total: Decimal | None = None,
-    ) -> None:
-        """Take the running meter totals and file what is new.
+    async def async_accrue(self, metered_total: Decimal) -> None:
+        """Take the master meter's running total and file what is new.
 
-        Only ever the *delta*, and only ever forwards for energy. The meter is
-        a Riemann integral of a non-negative power reading, so it cannot
-        legitimately go backwards; if it does, something restarted or was
-        recalibrated and pretending otherwise would invent energy.
+        Only ever the *delta*, and only ever forwards. The meter is a Riemann
+        integral of a non-negative power reading, so it cannot legitimately go
+        backwards; if it does, something restarted or was recalibrated and
+        pretending otherwise would invent energy.
 
-        Cost and solar are optional and independent. A house exporting more
-        than it imports can legitimately drive the cost delta negative, so only
-        the energy is held to running forwards.
+        Energy only. Cost never accrues live, because the rate meters are
+        deliberately provisional - they price every charge as though it were on
+        our supply - and filing that against whatever bucket happens to be
+        routed would put two dollars on a charge that was free at a workplace.
+        Cost enters the ledger once, at session close, when the place is known,
+        and is restated by a correction if that turns out to be wrong. One path,
+        not two.
         """
         async with self._lock:
             delta = metered_total - self._last.kwh
@@ -214,37 +213,13 @@ class Ledger:
                         self._last.kwh,
                         metered_total,
                     )
-                self._last = self._resync(metered_total, cost_total, solar_total)
+                self._last = Balance(metered_total)
                 return
 
-            self._balances[self._route] += Balance(
-                kwh=delta,
-                cost=ZERO if cost_total is None else cost_total - self._last.cost,
-                solar_kwh=(
-                    ZERO if solar_total is None else solar_total - self._last.solar_kwh
-                ),
-            )
-            self._last = self._resync(metered_total, cost_total, solar_total)
+            self._balances[self._route] += Balance(kwh=delta)
+            self._last = Balance(metered_total)
             await self._async_persist()
         self._notify()
-
-    def _resync(
-        self,
-        metered_total: Decimal,
-        cost_total: Decimal | None,
-        solar_total: Decimal | None,
-    ) -> Balance:
-        """The new high-water mark, leaving untracked figures where they were.
-
-        A meter that is not configured must not have its running total reset to
-        zero, or the first reading after it *is* configured would accrue its
-        whole lifetime in one lump.
-        """
-        return Balance(
-            metered_total,
-            self._last.cost if cost_total is None else cost_total,
-            self._last.solar_kwh if solar_total is None else solar_total,
-        )
 
     async def async_move(
         self,

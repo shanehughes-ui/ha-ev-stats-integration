@@ -46,6 +46,7 @@ from .const import (
     CONF_ODOMETER,
     CONF_PETROL_L_PER_100KM,
     CONF_RECORD_POSITIONS,
+    CONF_SECURITY_ENTITIES,
     CONF_SOLAR_CURTAILMENT,
     CONF_SOLAR_POWER,
     CONF_SUPPLY_SOURCE,
@@ -160,6 +161,9 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                         opt(car, CONF_TYRE_PRESSURE): _sensor("pressure", multiple=True),
                         opt(car, CONF_TYRE_TEMPERATURE): _sensor(
                             "temperature", multiple=True
+                        ),
+                        opt(car, CONF_SECURITY_ENTITIES): _entity(
+                            ["lock", "binary_sensor", "cover"], multiple=True
                         ),
                     }
                 ),

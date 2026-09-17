@@ -32,11 +32,17 @@ from .const import (
     BASELINE_MAX_SAMPLES,
     BASELINE_MIN_COVERAGE,
     CHARGE_ON_KW,
+    TYRE_BASELINE_MAX_AGE_S,
+    TYRE_BASELINE_MAX_SAMPLES,
+    TYRE_BASELINE_MIN_COVERAGE,
 )
 from .helpers import numeric_state
 from .rolling import RollingWindow
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long a computed median stays good for. It describes a whole day.
+MEDIAN_CACHE_S = 30.0
 
 
 class HouseBaseline:
@@ -53,6 +59,7 @@ class HouseBaseline:
         self._power = power_entity
         self._window = RollingWindow(BASELINE_MAX_AGE_S, BASELINE_MAX_SAMPLES)
         self._unsub = None
+        self._cached: tuple[float, float | None] | None = None
 
     # ------------------------------------------------------------ lifecycle --
     async def async_start(self) -> None:
@@ -70,7 +77,19 @@ class HouseBaseline:
     # --------------------------------------------------------------- state --
     @property
     def median(self) -> float | None:
-        return self._window.median(dt_util.utcnow().timestamp())
+        """Cached for half a minute.
+
+        A median over two thousand samples sorts them, and this is read from a
+        rate that recomputes whenever the house load moves - which can be every
+        few seconds. The answer is a 24-hour figure; it does not change in
+        thirty seconds, so recomputing it that often is pure cost.
+        """
+        now = dt_util.utcnow().timestamp()
+        if self._cached is not None and now - self._cached[0] < MEDIAN_CACHE_S:
+            return self._cached[1]
+        value = self._window.median(now)
+        self._cached = (now, value)
+        return value
 
     @property
     def coverage(self) -> float:
@@ -171,3 +190,48 @@ def _numeric_series(states) -> list[tuple[float, float]]:
         series.append((state.last_updated.timestamp(), value))
     series.sort(key=lambda item: item[0])
     return series
+
+
+class TyreBaseline:
+    """The tyres' own 30-day history, which is the only honest reference.
+
+    No placard pressure is published by most cars or present anywhere in their
+    data, and the 20-degree normalisation reference is arbitrary. So a tyre is
+    never judged pass or fail - only against what it has been doing itself, and
+    a slow leak shows up as drift weeks before a raw reading would trip any
+    fixed threshold.
+
+    Not backfilled. Thirty days of history is far more than is worth reading
+    back at every startup, and unlike the house baseline nothing depends on
+    this being ready immediately - it reports drift or it reports nothing.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+        self._window = RollingWindow(
+            TYRE_BASELINE_MAX_AGE_S, TYRE_BASELINE_MAX_SAMPLES
+        )
+
+    def add(self, value: float) -> None:
+        self._window.add(dt_util.utcnow().timestamp(), value)
+
+    @property
+    def median(self) -> float | None:
+        return self._window.median(dt_util.utcnow().timestamp())
+
+    @property
+    def coverage(self) -> float:
+        return self._window.coverage(dt_util.utcnow().timestamp())
+
+    @property
+    def usable(self) -> bool:
+        return (
+            self.median is not None
+            and self.coverage >= TYRE_BASELINE_MIN_COVERAGE
+        )
+
+    def drift(self, current: float | None) -> float | None:
+        """How far the lowest tyre has moved from its own baseline."""
+        if current is None or not self.usable:
+            return None
+        return round(current - self.median, 2)

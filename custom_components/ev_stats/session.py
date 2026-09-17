@@ -53,7 +53,9 @@ from .classify import (
     Thresholds,
     classify,
 )
+from .buckets import ZERO
 from .const import (
+    BUCKET_HOME,
     BUCKET_UNKNOWN,
     CHARGE_ON_KW,
     CONF_BATTERY,
@@ -118,6 +120,11 @@ class SessionState:
     started: str | None = None
     start_energy: Decimal = Decimal(0)
     start_house_energy: Decimal = Decimal(0)
+    # The provisional cost and solar meters at the moment this opened. The
+    # session's own figures are the difference; see `meters.py` for why they
+    # are priced before the place is known.
+    start_cost: Decimal = Decimal(0)
+    start_solar: Decimal = Decimal(0)
     start_soc: float | None = None
     peak_kw: float = 0.0
     peak_amps: float = 0.0
@@ -132,6 +139,8 @@ class SessionState:
             "started": self.started,
             "start_energy": str(self.start_energy),
             "start_house_energy": str(self.start_house_energy),
+            "start_cost": str(self.start_cost),
+            "start_solar": str(self.start_solar),
             "start_soc": self.start_soc,
             "peak_kw": self.peak_kw,
             "peak_amps": self.peak_amps,
@@ -148,6 +157,8 @@ class SessionState:
             started=data.get("started"),
             start_energy=Decimal(str(data.get("start_energy", "0"))),
             start_house_energy=Decimal(str(data.get("start_house_energy", "0"))),
+            start_cost=Decimal(str(data.get("start_cost", "0"))),
+            start_solar=Decimal(str(data.get("start_solar", "0"))),
             start_soc=data.get("start_soc"),
             peak_kw=float(data.get("peak_kw", 0.0)),
             peak_amps=float(data.get("peak_amps", 0.0)),
@@ -479,6 +490,8 @@ class SessionManager:
                 started=dt_util.utcnow().isoformat(timespec="seconds"),
                 start_energy=self.runtime.charge_energy.total,
                 start_house_energy=house_total,
+                start_cost=self.runtime.meters.cost_total or Decimal(0),
+                start_solar=self.runtime.meters.solar_total or Decimal(0),
                 start_soc=numeric_state(self.hass, self.config.required(CONF_BATTERY)),
                 peak_kw=round(power, 3),
                 # Flags are passed in rather than written afterwards. Setting
@@ -534,6 +547,12 @@ class SessionManager:
             )
             started = self.state.started
             state_snapshot = self.state
+            prov_cost = self._meter_delta(
+                self.runtime.meters.cost_total, self.state.start_cost
+            )
+            prov_solar = self._meter_delta(
+                self.runtime.meters.solar_total, self.state.start_solar
+            )
 
         # Stop routing FIRST, so anything arriving from here on lands in
         # `unknown` rather than in a bucket the verdict may be about to reject.
@@ -552,6 +571,17 @@ class SessionManager:
 
         swept = await self._async_sweep(verdict)
 
+        # The provisional figures become real ones only for a home session.
+        # This is the one place cost enters the ledger from a live meter; a
+        # later correction restates it through the same arithmetic. Anywhere
+        # else, the charge did not bill through our meter and costs us nothing,
+        # which is not the same as being worth nothing - see the free-charging
+        # value sensor, which prices it at what home charging actually costs.
+        if verdict.bucket == BUCKET_HOME and (prov_cost or prov_solar):
+            await self.runtime.ledger.async_adjust(
+                BUCKET_HOME, prov_cost or ZERO, prov_solar or ZERO
+            )
+
         if verdict.bucket == BUCKET_UNKNOWN:
             # Protect what was deliberately left unattributed, so a later
             # confident session cannot absorb it.
@@ -562,7 +592,15 @@ class SessionManager:
         self.hass.bus.async_fire(
             EVENT_SESSION_RECORDED,
             self._event_payload(
-                verdict, kwh, swept, ratio, soc_delta, started, state_snapshot
+                verdict,
+                kwh,
+                swept,
+                ratio,
+                soc_delta,
+                started,
+                state_snapshot,
+                prov_cost,
+                prov_solar,
             ),
         )
 
@@ -591,8 +629,11 @@ class SessionManager:
         soc_delta: float | None,
         started: str | None,
         snapshot: SessionState,
+        prov_cost: Decimal | None,
+        prov_solar: Decimal | None,
     ) -> dict[str, Any]:
         location = self.runtime.location
+        at_home = verdict.bucket == BUCKET_HOME
         return {
             "id": dt_util.utcnow().strftime("%Y%m%d%H%M%S"),
             "start": started,
@@ -621,8 +662,32 @@ class SessionManager:
             "supply": snapshot.supply,
             "soc_delta": soc_delta,
             "swept": float(round(swept, 3)),
+            # What this session actually contributed to its bucket. Zero
+            # anywhere but home, because nowhere else bills through our meter.
+            "cost": float(round(prov_cost, 4)) if at_home and prov_cost else 0,
+            "solar_kwh": float(round(prov_solar, 3)) if at_home and prov_solar else 0,
+            # Recorded unconditionally, unlike the pair above: what this would
+            # have cost at home, and how much of it our panels would have
+            # covered. Meaningful for any bucket, and without them a later
+            # correction to home would have nothing to reach for.
+            "prov_cost": None if prov_cost is None else float(round(prov_cost, 4)),
+            "prov_solar": None if prov_solar is None else float(round(prov_solar, 3)),
             "flags": list(snapshot.flags),
         }
+
+    @staticmethod
+    def _meter_delta(total: Decimal | None, start: Decimal) -> Decimal | None:
+        """A meter's movement over this session, or None if it cannot say.
+
+        None when the meter is not configured at all, and None when it now
+        reads lower than it did at the open - which means it restarted
+        underneath the session, so the opening reading refers to a different
+        series. Reporting the difference anyway would log a negative cost.
+        """
+        if total is None:
+            return None
+        delta = total - start
+        return delta if delta >= ZERO else None
 
     # ------------------------------------------------------------- watchdog --
     async def _async_watchdog(self, _now) -> None:

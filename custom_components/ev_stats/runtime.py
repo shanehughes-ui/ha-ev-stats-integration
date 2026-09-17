@@ -8,9 +8,12 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
-from .baseline import HouseBaseline
+from .baseline import HouseBaseline, TyreBaseline
+from .derived import lowest_tyre
+from .classify import GPS_UNKNOWN
 from .const import (
     BUCKET_HOME,
     BUCKET_OTHER,
@@ -20,12 +23,18 @@ from .const import (
     CONF_CHARGE_EFFICIENCY,
     CONF_CHARGING_POWER,
     CONF_HOUSE_LOAD,
+    CONF_CHARGER_PLUG,
+    CONF_INSTALL_ODOMETER,
+    CONF_ODOMETER,
     CONF_RECORD_POSITIONS,
+    CONF_TYRE_PRESSURE,
+    CONF_TYRE_TEMPERATURE,
     CONF_WORK_ZONES,
     DEFAULT_CHARGE_EFFICIENCY,
     EVENT_PACK_ESTIMATE,
     EVENT_SESSION_RECORDED,
     EVENT_TRIP_RECORDED,
+    SECTION_CAR,
     SECTION_EXTRAS,
     SECTION_HOUSE,
     SECTION_LOCATION,
@@ -35,6 +44,7 @@ from .helpers import Config, numeric_state
 from .integrator import SourceIntegrator
 from .ledger import Ledger
 from .location import LocationTracker
+from .meters import RateMeters
 from .packsize import implied_capacity
 from .session import SessionManager
 from .store import LogStore
@@ -131,7 +141,9 @@ class EvStatsRuntime:
             else None
         )
 
+        self.tyre_baseline = TyreBaseline(hass)
         self.location = LocationTracker(hass, entry.entry_id, self.config)
+        self.meters = RateMeters(hass, entry.entry_id, self)
         self.session = SessionManager(hass, entry.entry_id, self)
         self.trips = TripManager(hass, entry.entry_id, self)
         self._unsubs: list = []
@@ -146,6 +158,7 @@ class EvStatsRuntime:
         # the entire lifetime energy as an error.
         self.charge_energy.restore(self.ledger.last_total)
         await self.logs.async_load()
+        await self.meters.async_load()
         await self.location.async_load()
         await self.session.async_load()
         await self.trips.async_load()
@@ -165,6 +178,7 @@ class EvStatsRuntime:
         )
 
         self.charge_energy.async_start()
+        self.meters.async_start()
         if self.house_energy:
             self.house_energy.async_start()
         # Before the session manager: the classifier asks the baseline whether
@@ -175,6 +189,7 @@ class EvStatsRuntime:
             await self.baseline.async_start()
         self.location.async_start()
         self.trips.async_start()
+        self._start_tyre_sampling()
         await self.session.async_start()
 
     @callback
@@ -187,6 +202,7 @@ class EvStatsRuntime:
         self.location.async_stop()
         if self.baseline:
             self.baseline.async_stop()
+        self.meters.async_stop()
         self.charge_energy.async_stop()
         if self.house_energy:
             self.house_energy.async_stop()
@@ -195,6 +211,90 @@ class EvStatsRuntime:
     def _on_charge_energy(self, total: Decimal) -> None:
         """New energy metered: file it into whichever bucket is routed."""
         self.hass.async_create_task(self.ledger.async_accrue(total))
+
+    @callback
+    def _start_tyre_sampling(self) -> None:
+        """Feed the tyres' own 30-day history.
+
+        Sampled from the normalised reading rather than the raw one, so the
+        baseline is free of the thermal swing too - otherwise drift would be
+        measured against a reference that moves with the weather, which is the
+        very thing the normalisation exists to remove.
+        """
+        pressures = [
+            e for e in (self.config.opt(SECTION_CAR, CONF_TYRE_PRESSURE) or []) if e
+        ]
+        if not pressures:
+            return
+
+        @callback
+        def _sample(_event) -> None:
+            value = lowest_tyre(self)
+            if value is not None:
+                self.tyre_baseline.add(value)
+
+        self._unsubs.append(
+            async_track_state_change_event(self.hass, pressures, _sample)
+        )
+        _sample(None)
+
+    # ------------------------------------------------------- derived inputs --
+    @property
+    def distance_since_install(self) -> float | None:
+        """Distance on the same basis as the energy.
+
+        Unavailable rather than falling back to the whole-of-life odometer when
+        the install reading has not been set. A consumption figure computed
+        against a car's entire history would be wrong by a factor of three and
+        would look entirely plausible.
+        """
+        odo = numeric_state(self.hass, self.config.required(CONF_ODOMETER))
+        install = self.config.opt(SECTION_THRESHOLDS, CONF_INSTALL_ODOMETER)
+        if odo is None or install is None:
+            return None
+        return max(round(odo - float(install), 1), 0.0)
+
+    @property
+    def days_since_install(self) -> float | None:
+        """How long this has been running, from the config entry itself.
+
+        No separate install-date setting to get out of step with the odometer
+        reading beside it - the entry knows when it was created.
+        """
+        created = getattr(self.entry, "created_at", None)
+        if created is None:
+            return None
+        return max((dt_util.utcnow() - created).total_seconds() / 86400, 0.0)
+
+    @property
+    def tyre_temperature_entities(self) -> list[str]:
+        value = self.config.opt(SECTION_CAR, CONF_TYRE_TEMPERATURE) or []
+        return [value] if isinstance(value, str) else list(value)
+
+    def is_plugged_in(self) -> bool:
+        plug = self.config.opt(SECTION_CAR, CONF_CHARGER_PLUG)
+        state = self.hass.states.get(plug) if plug else None
+        return state is not None and state.state in ("on", "connected", "plugged")
+
+    def charging_at(self) -> str:
+        """The best current belief about where the car is charging.
+
+        Not the same question as the closing verdict, and it is asked live -
+        by the carbon rate, which has no session end to correct it. The
+        classifier first, because it weighs both signals; a trusted fix second,
+        so that a charge nobody has classified yet is still placed if the car
+        is provably somewhere known.
+
+        It resolves rather than waits. Leaving this at `unknown` through an
+        entire home charge would credit our own roof with nothing and report
+        grid carbon for solar kilowatts.
+        """
+        known = (BUCKET_HOME, *self.work_buckets, BUCKET_OTHER, BUCKET_PUBLIC_DC)
+        verdict = self.session.classification.bucket
+        if verdict in known:
+            return verdict
+        zone = self.location.zone()
+        return zone if zone in known else GPS_UNKNOWN
 
     # ----------------------------------------------------------------- logs --
     async def _on_session(self, event: Event) -> None:
