@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "EV Stats",
-        "description": "Only four entities are needed to start. Everything else — house load, solar, prices, tyres, carbon — is optional and is configured afterwards.",
+        "description": "Only four entities are needed to start. Everything else \u00e2\u20ac\u201d house load, solar, prices, tyres, carbon \u00e2\u20ac\u201d is optional and is configured afterwards.",
         "data": {
           "charging_power": "Charging power",
           "odometer": "Odometer",
@@ -44,11 +44,13 @@
               "distance_to_service": "Distance to service",
               "voltage_12v": "12 V battery voltage",
               "tyre_pressure": "Tyre pressure (all four)",
-              "tyre_temperature": "Tyre temperature (all four)"
+              "tyre_temperature": "Tyre temperature (all four)",
+              "supply_source": "AC/DC supply"
             },
             "data_description": {
               "engine_state": "Used to detect trips. Far more reliable than speed, which reads zero at every set of lights.",
-              "device_tracker": "Only trusted when the odometer has not moved since the fix was taken."
+              "device_tracker": "Only trusted when the odometer has not moved since the fix was taken.",
+              "supply_source": "An entity reading AC or DC. Only a DC session can be classed as public fast charging; without this signal that verdict is never reached, rather than being guessed from how fast the car is charging."
             }
           },
           "location": {
@@ -60,7 +62,7 @@
               "work_radius_m": "Free-zone radius"
             },
             "data_description": {
-              "work_zones": "Zones where charging costs nothing — a workplace charger, for instance. Each becomes its own bucket."
+              "work_zones": "Zones where charging costs nothing \u00e2\u20ac\u201d a workplace charger, for instance. Each becomes its own bucket."
             }
           },
           "house": {
@@ -137,11 +139,43 @@
       },
       "unattributed_floor": {
         "name": "Unattributed floor"
+      },
+      "session_energy": {
+        "name": "Session energy"
+      },
+      "session_duration": {
+        "name": "Session duration"
+      },
+      "house_supply_ratio": {
+        "name": "House supply ratio"
+      },
+      "session_classification": {
+        "name": "Session classification"
+      },
+      "trusted_location": {
+        "name": "Trusted location"
+      },
+      "gps_staleness": {
+        "name": "GPS staleness"
+      },
+      "house_baseline": {
+        "name": "House baseline"
       }
     },
     "select": {
       "route": {
         "name": "Charging attributed to"
+      }
+    },
+    "binary_sensor": {
+      "charging": {
+        "name": "Charging"
+      },
+      "session_active": {
+        "name": "Session running"
+      },
+      "gps_fresh": {
+        "name": "GPS fresh"
       }
     }
   },

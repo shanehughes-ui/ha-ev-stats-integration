@@ -79,6 +79,16 @@ class Ledger:
     def floor(self) -> Decimal:
         return self._floor
 
+    @property
+    def last_total(self) -> Decimal:
+        """The master meter reading this ledger has already accounted for.
+
+        Persisted, which makes it the one durable record of how much the
+        integrator had metered. The integrator itself starts from zero on every
+        restart, so this is what it is restored from.
+        """
+        return self._last_total
+
     def balance(self, bucket: str) -> Decimal:
         return self._balances.get(bucket, Decimal(0))
 

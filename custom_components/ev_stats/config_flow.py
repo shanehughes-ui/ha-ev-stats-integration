@@ -47,6 +47,7 @@ from .const import (
     CONF_PETROL_L_PER_100KM,
     CONF_SOLAR_CURTAILMENT,
     CONF_SOLAR_POWER,
+    CONF_SUPPLY_SOURCE,
     CONF_TRIP_CONSUMPTION,
     CONF_TYRE_PRESSURE,
     CONF_TYRE_TEMPERATURE,
@@ -147,6 +148,9 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                         opt(car, CONF_ENGINE_STATE): _sensor(),
                         opt(car, CONF_CHARGER_PLUG): _entity("binary_sensor"),
                         opt(car, CONF_CHARGER_CONNECTION): _sensor(),
+                        opt(car, CONF_SUPPLY_SOURCE): _entity(
+                            ["sensor", "input_select", "select"]
+                        ),
                         opt(car, CONF_EFFICIENCY): _sensor(),
                         opt(car, CONF_TRIP_CONSUMPTION): _sensor(),
                         opt(car, CONF_DAYS_TO_SERVICE): _sensor(),

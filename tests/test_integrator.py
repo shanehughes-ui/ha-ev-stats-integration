@@ -9,21 +9,15 @@ standing up a test harness.
 
 from __future__ import annotations
 
-import importlib.util
 from decimal import Decimal
-from pathlib import Path
 
-# Loaded by path rather than as part of the package: importing ev_stats would
-# pull in Home Assistant, and the point of trapezoid.py is that it does not need
-# any. If this import ever starts requiring HA, the separation has been lost.
-_MODULE = (
-    Path(__file__).resolve().parents[1]
-    / "custom_components" / "ev_stats" / "trapezoid.py"
-)
-_spec = importlib.util.spec_from_file_location("trapezoid", _MODULE)
-trapezoid = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(trapezoid)
-TrapezoidIntegrator = trapezoid.TrapezoidIntegrator
+import pure
+
+# Loaded through the stand-in package in pure.py rather than imported: pulling
+# in ev_stats proper would drag in Home Assistant, and the point of
+# trapezoid.py is that it does not need any. If this ever starts requiring HA,
+# the separation has been lost.
+TrapezoidIntegrator = pure.load("trapezoid").TrapezoidIntegrator
 
 HOUR = Decimal(3600)
 

@@ -35,6 +35,11 @@ CONF_DEVICE_TRACKER: Final = "device_tracker"
 CONF_ENGINE_STATE: Final = "engine_state"
 CONF_CHARGER_PLUG: Final = "charger_plug"
 CONF_CHARGER_CONNECTION: Final = "charger_connection"
+# An entity reading AC or DC. Without one, a `supply` attribute on the charging
+# power sensor is used instead - which is how the Geely integration reports it.
+# With neither, the DC rule never fires, and that is deliberate: inferring DC
+# from high power would file a 22 kW three-phase AC charger as public DC.
+CONF_SUPPLY_SOURCE: Final = "supply_source"
 CONF_EFFICIENCY: Final = "efficiency"
 CONF_TRIP_CONSUMPTION: Final = "trip_consumption"
 CONF_DAYS_TO_SERVICE: Final = "days_to_service"
@@ -104,3 +109,54 @@ BASE_BUCKETS: Final = (BUCKET_UNKNOWN, BUCKET_HOME, BUCKET_PUBLIC_DC, BUCKET_OTH
 SERVICE_MOVE_ENERGY: Final = "move_energy"
 SERVICE_LOG_DC_SESSION: Final = "log_dc_session"
 SERVICE_IMPORT_LEGACY: Final = "import_legacy"
+
+EVENT_SESSION_RECORDED: Final = f"{DOMAIN}_session_recorded"
+
+# --- session lifecycle ------------------------------------------------------
+# Not config keys. Each is a property of how the car behaves rather than a
+# preference, and exposing them as options would invite tuning the wrong knob.
+
+# Above this the car is charging. Not zero: the reading idles at a few watts of
+# noise, and a threshold of zero opens a session every time the car is polled.
+CHARGE_ON_KW: Final = 0.05
+
+# A minute of sustained draw before a session is real. Preconditioning the
+# cabin briefly draws from the wall, and it is not a charge.
+START_DEBOUNCE_S: Final = 60
+# Five to close, because the charger tapers to near zero at the top of a charge
+# and comes back. Closing at the first zero would split one session into four.
+END_DEBOUNCE_S: Final = 300
+# The plug coming out is unambiguous, so it needs far less patience than power
+# falling to zero does.
+DISCONNECT_DEBOUNCE_S: Final = 120
+
+WATCHDOG_INTERVAL_S: Final = 600
+# Power at zero for half an hour with a session still open means the closing
+# trigger was missed - usually the car dropped off the network mid-session.
+STUCK_SESSION_S: Final = 1800
+
+# The most pre-session energy a confident verdict may claim. Sized to a plug-in
+# tail (~0.1 kWh), not to a session: without a cap, one high-confidence verdict
+# could swallow every unattributed kWh the system had ever accumulated.
+SWEEP_CAP_KWH: Final = 3.0
+# Below this a move is not worth making - it is rounding, and each one writes
+# to the store and redraws every bucket sensor.
+SWEEP_MIN_KWH: Final = 0.005
+
+# --- the house-load baseline ------------------------------------------------
+BASELINE_MAX_AGE_S: Final = 24 * 3600
+BASELINE_MAX_SAMPLES: Final = 2000
+# A baseline still filling its window is not a baseline. Under half a window
+# the house-supply proof declines to answer and the classifier falls back to
+# location, which is honest; answering from thirty minutes of samples would be
+# worse than admitting ignorance.
+BASELINE_MIN_COVERAGE: Final = 0.5
+
+# --- GPS --------------------------------------------------------------------
+# About two metres. Below this the tracker is jittering in place rather than
+# reporting a new position, and re-latching would reset the freshness test that
+# is the entire reason the fix can be trusted.
+GPS_MIN_DELTA_DEG: Final = 0.00002
+# A latitude or longitude smaller than this is the null island sentinel a
+# tracker emits when it has no fix, not a position off the coast of Ghana.
+GPS_MIN_ABS_DEG: Final = 1.0
