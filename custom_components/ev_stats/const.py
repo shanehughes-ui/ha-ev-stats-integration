@@ -118,6 +118,7 @@ SERVICE_MOVE_ENERGY: Final = "move_energy"
 SERVICE_CORRECT_SESSION: Final = "correct_session"
 SERVICE_LOG_DC_SESSION: Final = "log_dc_session"
 SERVICE_IMPORT_LEGACY: Final = "import_legacy"
+SERVICE_DASHBOARD: Final = "dashboard"
 
 EVENT_SESSION_RECORDED: Final = f"{DOMAIN}_session_recorded"
 EVENT_SESSION_CORRECTED: Final = f"{DOMAIN}_session_corrected"

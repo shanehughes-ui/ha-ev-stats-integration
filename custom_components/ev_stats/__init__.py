@@ -19,6 +19,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .buckets import ZERO
 from .const import (
@@ -27,11 +28,14 @@ from .const import (
     DOMAIN,
     EVENT_SESSION_CORRECTED,
     SERVICE_CORRECT_SESSION,
+    SERVICE_DASHBOARD,
     SERVICE_IMPORT_LEGACY,
     SERVICE_LOG_DC_SESSION,
     SERVICE_MOVE_ENERGY,
 )
+from . import lovelace, panel, websocket
 from .runtime import EvStatsRuntime
+from .websocket import entity_map
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +90,8 @@ LOG_DC_SESSION_SCHEMA = vol.Schema(
         vol.Optional(ATTR_SESSION): cv.string,
     }
 )
+
+DASHBOARD_SCHEMA = vol.Schema({vol.Required(ATTR_ENTRY): _entry_field()})
 
 IMPORT_LEGACY_SCHEMA = vol.Schema(
     {
@@ -266,8 +272,26 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             call.data.get(ATTR_PACK_ENTITY),
         )
 
+    async def _dashboard(call: ServiceCall) -> ServiceResponse:
+        """Build a Lovelace view carrying this installation's entity ids.
+
+        Returned rather than written anywhere. A service that edited a
+        dashboard in place would be rewriting something the user owns, and the
+        useful thing here is the YAML - paste it into a dashboard's raw
+        configuration editor, or take the cards you want.
+        """
+        entry_id = call.data[ATTR_ENTRY]
+        runtime = _runtime(hass, entry_id)
+        view = lovelace.build_view(
+            runtime.entry.title, entity_map(hass, entry_id), runtime.buckets
+        )
+        return {"yaml": lovelace.to_yaml(view), "cards": sum(
+            len(section["cards"]) for section in view["sections"]
+        )}
+
     for name, handler, schema in (
         (SERVICE_MOVE_ENERGY, _move_energy, MOVE_ENERGY_SCHEMA),
+        (SERVICE_DASHBOARD, _dashboard, DASHBOARD_SCHEMA),
         (SERVICE_CORRECT_SESSION, _correct_session, CORRECT_SESSION_SCHEMA),
         (SERVICE_LOG_DC_SESSION, _log_dc_session, LOG_DC_SESSION_SCHEMA),
         (SERVICE_IMPORT_LEGACY, _import_legacy, IMPORT_LEGACY_SCHEMA),
@@ -279,6 +303,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             schema=schema,
             supports_response=SupportsResponse.OPTIONAL,
         )
+
+    # Registered here rather than per entry: the panel lists every configured
+    # car, so one command serves all of them and registering it twice raises.
+    websocket.async_register(hass)
     return True
 
 
@@ -286,6 +314,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EV Stats from a config entry."""
     runtime = EvStatsRuntime(hass, entry)
     await runtime.async_start()
+
+    integration = await async_get_integration(hass, DOMAIN)
+    await panel.async_register(hass, str(integration.version))
 
     # Populated BEFORE forwarding: each platform's async_setup_entry reads this
     # immediately, so the order is load-bearing rather than stylistic.
@@ -302,4 +333,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         runtime: EvStatsRuntime | None = hass.data[DOMAIN].pop(entry.entry_id, None)
         if runtime:
             runtime.async_stop()
+        # The panel belongs to the integration, not to one car, so it goes only
+        # when the last one does.
+        if not hass.data[DOMAIN]:
+            panel.async_remove(hass)
     return unloaded

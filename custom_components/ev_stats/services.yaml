@@ -108,3 +108,11 @@ import_legacy:
       selector:
         entity:
           domain: sensor
+
+dashboard:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ev_stats

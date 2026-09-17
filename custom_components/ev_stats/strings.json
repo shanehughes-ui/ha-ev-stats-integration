@@ -352,6 +352,16 @@
           "description": "Defaults to sensor.ev_pack_estimate."
         }
       }
+    },
+    "dashboard": {
+      "name": "Build a Lovelace view",
+      "description": "Returns a dashboard view as YAML, with this installation's own entity ids already in it. Paste the result into a dashboard's raw configuration editor. Nothing is written or changed by calling this.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Car",
+          "description": "Which EV Stats entry to build the view for."
+        }
+      }
     }
   }
 }
