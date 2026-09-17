@@ -45,6 +45,7 @@ from .const import (
     CONF_NOTIFY_TARGET,
     CONF_ODOMETER,
     CONF_PETROL_L_PER_100KM,
+    CONF_RECORD_POSITIONS,
     CONF_SOLAR_CURTAILMENT,
     CONF_SOLAR_POWER,
     CONF_SUPPLY_SOURCE,
@@ -168,6 +169,10 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                 vol.Schema(
                     {
                         opt(loc, CONF_WORK_ZONES): _entity("zone", multiple=True),
+                        vol.Optional(
+                            CONF_RECORD_POSITIONS,
+                            default=bool(loc.get(CONF_RECORD_POSITIONS, False)),
+                        ): selector.BooleanSelector(),
                         opt(loc, CONF_HOME_RADIUS_M, DEFAULT_HOME_RADIUS_M): _number(
                             10, 1000, 5, "m"
                         ),

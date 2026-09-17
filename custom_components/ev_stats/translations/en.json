@@ -59,10 +59,12 @@
             "data": {
               "work_zones": "Free-charging zones",
               "home_radius_m": "Home radius",
-              "work_radius_m": "Free-zone radius"
+              "work_radius_m": "Free-zone radius",
+              "record_positions": "Record trip coordinates"
             },
             "data_description": {
-              "work_zones": "Zones where charging costs nothing \u00e2\u20ac\u201d a workplace charger, for instance. Each becomes its own bucket."
+              "work_zones": "Zones where charging costs nothing \u00e2\u20ac\u201d a workplace charger, for instance. Each becomes its own bucket.",
+              "record_positions": "Off by default. With it on, each trip stores where it started and ended to the metre, which is what a route map needs - and what a shared dashboard would reveal about where you live."
             }
           },
           "house": {
@@ -160,6 +162,15 @@
       },
       "house_baseline": {
         "name": "House baseline"
+      },
+      "charge_sessions": {
+        "name": "Charge sessions"
+      },
+      "trips": {
+        "name": "Trips"
+      },
+      "pack_estimate": {
+        "name": "Usable pack size"
       }
     },
     "select": {
@@ -199,6 +210,72 @@
         "kwh": {
           "name": "Energy",
           "description": "How much to move, in kWh."
+        },
+        "cost": {
+          "name": "Cost",
+          "description": "Optional. Left out, a fair share of the source bucket's cost moves with the energy."
+        },
+        "solar_kwh": {
+          "name": "Solar",
+          "description": "Optional. Left out, a fair share of the source bucket's solar moves with the energy."
+        }
+      }
+    },
+    "correct_session": {
+      "name": "Correct a session's attribution",
+      "description": "Refile a logged charging session somewhere else. Moves its energy, and restates what it cost - the same charge is free at a workplace and priced at home, so the figure is replaced rather than carried.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Car",
+          "description": "Which EV Stats entry to act on."
+        },
+        "session_id": {
+          "name": "Session",
+          "description": "The id from the charge sessions log."
+        },
+        "bucket": {
+          "name": "Attribute to",
+          "description": "Where the session actually happened, for example home."
+        }
+      }
+    },
+    "log_dc_session": {
+      "name": "Log what a public charge cost",
+      "description": "The energy from a public charger is already metered by the car. What it cost is billed at the pump and reaches nothing here, so this is the one figure that has to be typed in.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Car",
+          "description": "Which EV Stats entry to act on."
+        },
+        "cost": {
+          "name": "Cost",
+          "description": "What the charge was billed at."
+        },
+        "session_id": {
+          "name": "Session",
+          "description": "Optional. Attaches the cost to one logged session as well as the total."
+        }
+      }
+    },
+    "import_legacy": {
+      "name": "Import logs from the YAML version",
+      "description": "Read charge sessions, trips and pack measurements out of the template sensors of a YAML install. Safe to run twice: records already held are skipped. Imports the logs only, never the bucket balances, which would double-count.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Car",
+          "description": "Which EV Stats entry to import into."
+        },
+        "sessions_entity": {
+          "name": "Sessions sensor",
+          "description": "Defaults to sensor.ev_charge_sessions."
+        },
+        "trips_entity": {
+          "name": "Trips sensor",
+          "description": "Defaults to sensor.ev_trips."
+        },
+        "pack_entity": {
+          "name": "Pack estimate sensor",
+          "description": "Defaults to sensor.ev_pack_estimate."
         }
       }
     }

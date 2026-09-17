@@ -18,7 +18,10 @@ from .const import (
     CONF_INSTALL_ODOMETER,
     CONF_ODOMETER,
     DOMAIN,
+    ESTIMATES_IN_ATTRIBUTES,
     SECTION_THRESHOLDS,
+    SESSIONS_IN_ATTRIBUTES,
+    TRIPS_IN_ATTRIBUTES,
 )
 from .helpers import Config, numeric_state
 from .runtime import EvStatsRuntime
@@ -41,6 +44,8 @@ async def async_setup_entry(
         SessionEnergy(entry, runtime),
         SessionDuration(entry, runtime),
         SessionClassification(entry, runtime),
+        ChargeSessions(entry, runtime),
+        PackEstimate(entry, runtime),
     ]
     entities += [BucketEnergy(entry, runtime, b) for b in runtime.buckets]
 
@@ -53,6 +58,10 @@ async def async_setup_entry(
     if runtime.location.configured:
         entities.append(TrustedLocation(entry, runtime))
         entities.append(GpsStaleness(entry, runtime))
+    # No engine signal means no trips can be detected at all, so a trip log
+    # that could only ever read zero is not published.
+    if runtime.trips.configured:
+        entities.append(Trips(entry, runtime))
 
     async_add_entities(entities)
 
@@ -140,13 +149,19 @@ class BucketEnergy(_LedgerEntity):
 
     @property
     def native_value(self) -> float:
-        return float(round(self._runtime.ledger.balance(self._bucket), 3))
+        return float(round(self._runtime.ledger.kwh(self._bucket), 3))
 
     @property
     def extra_state_attributes(self) -> dict[str, str]:
+        held = self._runtime.ledger.balance(self._bucket)
         return {
             "bucket": self._bucket,
             "receiving": str(self._runtime.ledger.route == self._bucket),
+            # What this energy cost, and how much of it the panels covered.
+            # They move with the energy when a session is reattributed, which
+            # is the whole reason a bucket is a record rather than a number.
+            "cost": float(round(held.cost, 4)),
+            "solar_kwh": float(round(held.solar_kwh, 3)),
         }
 
 
@@ -164,7 +179,7 @@ class EnergyTotal(_LedgerEntity):
 
     @property
     def native_value(self) -> float:
-        return float(round(self._runtime.ledger.total(), 3))
+        return float(round(self._runtime.ledger.total_kwh(), 3))
 
 
 class BalanceCheck(_LedgerEntity):
@@ -400,6 +415,125 @@ class GpsStaleness(_SessionEntity):
         # None, never zero. Defaulting the fix to zero here once published the
         # entire odometer as the distance travelled since the fix.
         return self._runtime.location.staleness_km
+
+
+class _LogEntity(EvStatsEntity):
+    """Redraws when a log changes, which is rarely."""
+
+    def __init__(self, entry: ConfigEntry, runtime: EvStatsRuntime, key: str) -> None:
+        super().__init__(entry, key)
+        self._runtime = runtime
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self._runtime.logs.add_listener(self._changed))
+
+    @callback
+    def _changed(self) -> None:
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+
+class ChargeSessions(_LogEntity):
+    """Every charge, and how it was attributed.
+
+    The state is a count rather than the last session's id, which is what the
+    YAML published. An id is a timestamp and says nothing on a dashboard; a
+    count of sessions does, and the id is still on the record.
+
+    The log is the tuning data for the classifier, so a corrected row keeps
+    what it was corrected *from*. A verdict that had to be overridden is the
+    only kind that teaches anything.
+    """
+
+    _attr_translation_key = "charge_sessions"
+    _attr_icon = "mdi:format-list-bulleted"
+
+    def __init__(self, entry: ConfigEntry, runtime: EvStatsRuntime) -> None:
+        super().__init__(entry, runtime, "charge_sessions")
+
+    @property
+    def native_value(self) -> int:
+        return self._runtime.logs.session_count
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        logs = self._runtime.logs
+        recent = logs.sessions(SESSIONS_IN_ATTRIBUTES)
+        last = recent[-1] if recent else None
+        return {
+            # A slice, not the whole log. The recorder rewrites an entity's
+            # entire attribute blob on every state change, so what goes here
+            # has to stay small - the Store behind it holds the rest.
+            "sessions": recent,
+            "last_id": last.get("id") if last else None,
+            "last_bucket": last.get("bucket") if last else None,
+            "unattributed": sum(
+                1 for s in logs.sessions() if s.get("bucket") == "unknown"
+            ),
+            "corrected": sum(1 for s in logs.sessions() if s.get("corrected")),
+        }
+
+
+class Trips(_LogEntity):
+    """Every completed drive."""
+
+    _attr_translation_key = "trips"
+    _attr_icon = "mdi:road-variant"
+
+    def __init__(self, entry: ConfigEntry, runtime: EvStatsRuntime) -> None:
+        super().__init__(entry, runtime, "trips")
+
+    @property
+    def native_value(self) -> int:
+        return self._runtime.logs.trip_count
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        logs = self._runtime.logs
+        return {
+            "trips": logs.trips(TRIPS_IN_ATTRIBUTES),
+            "total_km": round(sum(t.get("km") or 0 for t in logs.trips()), 1),
+        }
+
+
+class PackEstimate(_LogEntity):
+    """Usable pack size, measured by charges that spanned a wide SoC range.
+
+    The state is the rolling mean, never the latest single measurement. Real
+    ones scatter about 1.5% while the thing being looked for is roughly 2% a
+    year, so one wide session must not be able to move a converged figure on
+    its own - the YAML wrote the latest reading over the top of the previous
+    one and kept no history at all.
+    """
+
+    _attr_translation_key = "pack_estimate"
+    _attr_device_class = SensorDeviceClass.ENERGY_STORAGE
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:battery-heart-variant"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, entry: ConfigEntry, runtime: EvStatsRuntime) -> None:
+        super().__init__(entry, runtime, "pack_estimate")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._runtime.logs.pack_rolling_mean
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        logs = self._runtime.logs
+        estimates = logs.estimates(ESTIMATES_IN_ATTRIBUTES)
+        latest = estimates[-1] if estimates else None
+        return {
+            "estimates": estimates,
+            "latest": latest.get("implied") if latest else None,
+            "sample_count": len(logs.estimates()),
+            # None until there are enough measurements spread over enough time.
+            # A slope through four readings taken in one month extrapolates a
+            # season into a decade.
+            "kwh_per_year": logs.pack_trend,
+        }
 
 
 class DistanceSinceInstall(EvStatsEntity):

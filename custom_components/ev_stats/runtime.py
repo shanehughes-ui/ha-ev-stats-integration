@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.util import dt as dt_util
 
 from .baseline import HouseBaseline
 from .const import (
@@ -14,17 +16,29 @@ from .const import (
     BUCKET_OTHER,
     BUCKET_PUBLIC_DC,
     BUCKET_UNKNOWN,
+    CONF_AMBIENT_TEMP,
+    CONF_CHARGE_EFFICIENCY,
     CONF_CHARGING_POWER,
     CONF_HOUSE_LOAD,
+    CONF_RECORD_POSITIONS,
     CONF_WORK_ZONES,
+    DEFAULT_CHARGE_EFFICIENCY,
+    EVENT_PACK_ESTIMATE,
+    EVENT_SESSION_RECORDED,
+    EVENT_TRIP_RECORDED,
+    SECTION_EXTRAS,
     SECTION_HOUSE,
     SECTION_LOCATION,
+    SECTION_THRESHOLDS,
 )
-from .helpers import Config
+from .helpers import Config, numeric_state
 from .integrator import SourceIntegrator
 from .ledger import Ledger
 from .location import LocationTracker
+from .packsize import implied_capacity
 from .session import SessionManager
+from .store import LogStore
+from .trip import TripManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +49,17 @@ CHARGE_SUB_INTERVAL = 60.0
 # The house meter updates on its own and matters less per-sample, so it gets a
 # longer leash.
 HOUSE_SUB_INTERVAL = 120.0
+
+# Default entity ids of the YAML package this integration grew out of, so an
+# import needs no arguments on the install it is most likely to be run against.
+LEGACY_SESSIONS = "sensor.ev_charge_sessions"
+LEGACY_TRIPS = "sensor.ev_trips"
+LEGACY_PACK = "sensor.ev_pack_estimate"
+
+# Old field name -> new one. The shapes are close because one grew out of the
+# other, and where they differ the new name is the clearer of the two.
+LEGACY_SESSION_FIELDS = {"amps": "peak_amps"}
+LEGACY_TRIP_FIELDS = {"from_pos": "from_position", "to_pos": "to_position"}
 
 
 def work_bucket_id(zone_entity_id: str) -> str:
@@ -73,7 +98,7 @@ def derive_buckets(config: Config) -> tuple[str, ...]:
 
 
 class EvStatsRuntime:
-    """Holds the meters, the ledger and the session lifecycle for one entry."""
+    """Holds the meters, the ledger, the logs and the lifecycles for one entry."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
@@ -82,6 +107,7 @@ class EvStatsRuntime:
         self.buckets = derive_buckets(self.config)
         self.work_buckets = work_buckets(self.config)
         self.ledger = Ledger(hass, entry.entry_id, self.buckets)
+        self.logs = LogStore(hass, entry.entry_id)
         self.charging_power_entity: str = self.config.required(CONF_CHARGING_POWER)
 
         self.charge_energy = SourceIntegrator(
@@ -107,6 +133,8 @@ class EvStatsRuntime:
 
         self.location = LocationTracker(hass, entry.entry_id, self.config)
         self.session = SessionManager(hass, entry.entry_id, self)
+        self.trips = TripManager(hass, entry.entry_id, self)
+        self._unsubs: list = []
 
     async def async_start(self) -> None:
         await self.ledger.async_load()
@@ -117,8 +145,24 @@ class EvStatsRuntime:
         # check - the one number that says the rest can be trusted - reports
         # the entire lifetime energy as an error.
         self.charge_energy.restore(self.ledger.last_total)
+        await self.logs.async_load()
         await self.location.async_load()
         await self.session.async_load()
+        await self.trips.async_load()
+
+        # The logs are fed from the event bus rather than called into directly.
+        # It costs one hop and buys two things: a user automation sees exactly
+        # what the store sees, and an imported record takes the identical path
+        # as a live one instead of a parallel one that can drift.
+        self._unsubs.append(
+            self.hass.bus.async_listen(EVENT_SESSION_RECORDED, self._on_session)
+        )
+        self._unsubs.append(
+            self.hass.bus.async_listen(EVENT_TRIP_RECORDED, self._on_trip)
+        )
+        self._unsubs.append(
+            self.hass.bus.async_listen(EVENT_PACK_ESTIMATE, self._on_estimate)
+        )
 
         self.charge_energy.async_start()
         if self.house_energy:
@@ -130,10 +174,15 @@ class EvStatsRuntime:
         if self.baseline:
             await self.baseline.async_start()
         self.location.async_start()
+        self.trips.async_start()
         await self.session.async_start()
 
     @callback
     def async_stop(self) -> None:
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        self.trips.async_stop()
         self.session.async_stop()
         self.location.async_stop()
         if self.baseline:
@@ -146,3 +195,118 @@ class EvStatsRuntime:
     def _on_charge_energy(self, total: Decimal) -> None:
         """New energy metered: file it into whichever bucket is routed."""
         self.hass.async_create_task(self.ledger.async_accrue(total))
+
+    # ----------------------------------------------------------------- logs --
+    async def _on_session(self, event: Event) -> None:
+        record = dict(event.data)
+        await self.logs.async_record_session(record)
+        await self._async_maybe_measure_pack(record)
+
+    async def _on_trip(self, event: Event) -> None:
+        await self.logs.async_record_trip(dict(event.data))
+
+    async def _on_estimate(self, event: Event) -> None:
+        await self.logs.async_record_estimate(dict(event.data))
+
+    async def _async_maybe_measure_pack(self, record: dict[str, Any]) -> None:
+        """A charge across a wide SoC range measures the usable pack.
+
+        The only battery-health signal most cars can produce, and it falls out
+        of a session that was happening anyway. `implied_capacity` returns None
+        for a narrow charge rather than a number, because a bad measurement
+        looks exactly as authoritative as a good one once it is in the list.
+        """
+        soc_delta = record.get("soc_delta")
+        kwh = record.get("kwh")
+        if soc_delta is None or kwh is None:
+            return
+        efficiency = Decimal(
+            str(
+                self.config.opt(
+                    SECTION_THRESHOLDS,
+                    CONF_CHARGE_EFFICIENCY,
+                    DEFAULT_CHARGE_EFFICIENCY,
+                )
+            )
+        )
+        implied = implied_capacity(
+            Decimal(str(kwh)), Decimal(str(soc_delta)), efficiency
+        )
+        if implied is None:
+            return
+
+        self.hass.bus.async_fire(
+            EVENT_PACK_ESTIMATE,
+            {
+                "at": dt_util.utcnow().isoformat(timespec="seconds"),
+                "session_id": record.get("id"),
+                "kwh": kwh,
+                "soc_delta": soc_delta,
+                "implied": float(implied),
+                # Recorded with every measurement because it is the confound
+                # that actually limits this: a cold pack charges less
+                # efficiently, and that seasonal swing can exceed the
+                # degradation being looked for.
+                "ambient_c": numeric_state(
+                    self.hass, self.config.opt(SECTION_EXTRAS, CONF_AMBIENT_TEMP)
+                ),
+                "efficiency": float(efficiency),
+            },
+        )
+
+    # --------------------------------------------------------------- import --
+    async def async_import_legacy(
+        self,
+        sessions_entity: str | None = None,
+        trips_entity: str | None = None,
+        pack_entity: str | None = None,
+    ) -> dict[str, int]:
+        """Read the logs off a YAML install's template sensors."""
+        sessions = self._legacy_list(
+            sessions_entity or LEGACY_SESSIONS, "sessions", LEGACY_SESSION_FIELDS
+        )
+        trips = self._legacy_list(
+            trips_entity or LEGACY_TRIPS, "trips", LEGACY_TRIP_FIELDS
+        )
+        estimates = self._legacy_list(pack_entity or LEGACY_PACK, "estimates", {})
+
+        added = await self.logs.async_import(sessions, trips, estimates)
+        _LOGGER.info(
+            "Imported %s sessions, %s trips and %s pack measurements",
+            added["sessions"],
+            added["trips"],
+            added["estimates"],
+        )
+        return added
+
+    def _legacy_list(
+        self,
+        entity_id: str,
+        attribute: str,
+        renames: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            _LOGGER.debug("Nothing to import: %s does not exist", entity_id)
+            return []
+        rows = state.attributes.get(attribute)
+        if not isinstance(rows, list):
+            _LOGGER.warning("%s has no %r attribute to import", entity_id, attribute)
+            return []
+
+        keep_positions = bool(
+            self.config.opt(SECTION_LOCATION, CONF_RECORD_POSITIONS)
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            record = {renames.get(k, k): v for k, v in row.items()}
+            if not keep_positions:
+                # The same privacy default a live trip gets. An import is the
+                # most likely way coordinates would arrive in a store the user
+                # never chose to have them in.
+                record.pop("from_position", None)
+                record.pop("to_position", None)
+            out.append(record)
+        return out

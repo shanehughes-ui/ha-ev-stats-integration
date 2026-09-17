@@ -556,7 +556,7 @@ class SessionManager:
             # Protect what was deliberately left unattributed, so a later
             # confident session cannot absorb it.
             await self.runtime.ledger.async_set_floor(
-                self.runtime.ledger.balance(BUCKET_UNKNOWN)
+                self.runtime.ledger.kwh(BUCKET_UNKNOWN)
             )
 
         self.hass.bus.async_fire(

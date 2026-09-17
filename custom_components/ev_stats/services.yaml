@@ -1,3 +1,7 @@
+# Note the number steps. Home Assistant's number selector enforces a minimum
+# step of 0.001, and a smaller one silently disables the whole service while
+# every config check still reports the file as valid.
+
 move_energy:
   fields:
     config_entry_id:
@@ -25,3 +29,82 @@ move_energy:
           step: 0.001
           mode: box
           unit_of_measurement: kWh
+    cost:
+      example: 2.19
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.001
+          mode: box
+    solar_kwh:
+      example: 6.2
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.001
+          mode: box
+          unit_of_measurement: kWh
+
+correct_session:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ev_stats
+    session_id:
+      required: true
+      example: "20260917081500"
+      selector:
+        text:
+    bucket:
+      required: true
+      example: home
+      selector:
+        text:
+
+log_dc_session:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ev_stats
+    cost:
+      required: true
+      example: 18.40
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 0.01
+          mode: box
+    session_id:
+      example: "20260917081500"
+      selector:
+        text:
+
+import_legacy:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ev_stats
+    sessions_entity:
+      example: sensor.ev_charge_sessions
+      selector:
+        entity:
+          domain: sensor
+    trips_entity:
+      example: sensor.ev_trips
+      selector:
+        entity:
+          domain: sensor
+    pack_entity:
+      example: sensor.ev_pack_estimate
+      selector:
+        entity:
+          domain: sensor

@@ -53,6 +53,10 @@ CONF_TYRE_TEMPERATURE: Final = "tyre_temperature"  # list, 4 entities
 # slug into the tariff list, the classifier, the display map and a notification
 # action string; making it a list is most of what "fully parameterised" means.
 CONF_WORK_ZONES: Final = "work_zones"
+# Whether a completed trip records where it started and ended, to the metre.
+# Off by default: this integration ships dashboards meant to be shared, and a
+# home address is the most sensitive thing it could hold.
+CONF_RECORD_POSITIONS: Final = "record_positions"
 CONF_HOME_RADIUS_M: Final = "home_radius_m"
 CONF_WORK_RADIUS_M: Final = "work_radius_m"
 
@@ -107,10 +111,14 @@ BUCKET_OTHER: Final = "other"
 BASE_BUCKETS: Final = (BUCKET_UNKNOWN, BUCKET_HOME, BUCKET_PUBLIC_DC, BUCKET_OTHER)
 
 SERVICE_MOVE_ENERGY: Final = "move_energy"
+SERVICE_CORRECT_SESSION: Final = "correct_session"
 SERVICE_LOG_DC_SESSION: Final = "log_dc_session"
 SERVICE_IMPORT_LEGACY: Final = "import_legacy"
 
 EVENT_SESSION_RECORDED: Final = f"{DOMAIN}_session_recorded"
+EVENT_SESSION_CORRECTED: Final = f"{DOMAIN}_session_corrected"
+EVENT_TRIP_RECORDED: Final = f"{DOMAIN}_trip_recorded"
+EVENT_PACK_ESTIMATE: Final = f"{DOMAIN}_pack_estimate"
 
 # --- session lifecycle ------------------------------------------------------
 # Not config keys. Each is a property of how the car behaves rather than a
@@ -160,3 +168,22 @@ GPS_MIN_DELTA_DEG: Final = 0.00002
 # A latitude or longitude smaller than this is the null island sentinel a
 # tracker emits when it has no fix, not a position off the coast of Ghana.
 GPS_MIN_ABS_DEG: Final = 1.0
+
+# --- trips -------------------------------------------------------------------
+# The odometer is polled and lags the engine going off, so closing a trip
+# immediately records a real drive as 0.0 km. In the readings this was built
+# from, 13 of 57 engine cycles would have been written that way.
+TRIP_END_DEBOUNCE_S: Final = 120
+# The other half of the same guard: under half a kilometre is odometer lag, not
+# a journey. The ceiling catches a glitched reading that would otherwise land in
+# the log as a three-thousand-kilometre commute.
+TRIP_MIN_KM: Final = 0.5
+TRIP_MAX_KM: Final = 500.0
+
+# --- how much of each log a sensor publishes as attributes -------------------
+# The Store holds the whole history; these are the slices a dashboard can read.
+# An attribute blob is rewritten to the recorder on every state change, so this
+# is the number that has to stay small - not the log itself.
+SESSIONS_IN_ATTRIBUTES: Final = 20
+TRIPS_IN_ATTRIBUTES: Final = 40
+ESTIMATES_IN_ATTRIBUTES: Final = 60
