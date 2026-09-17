@@ -73,7 +73,7 @@ LEGACY_TRIP_FIELDS = {"from_pos": "from_position", "to_pos": "to_position"}
 
 
 def work_bucket_id(zone_entity_id: str) -> str:
-    """`zone.allison_work` -> `allison_work`.
+    """`zone.workplace` -> `workplace`.
 
     The zone's own object id, so a bucket is named after the place rather than
     after a slug someone typed. Renaming the zone renames the bucket, which is

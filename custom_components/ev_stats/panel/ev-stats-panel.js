@@ -170,6 +170,11 @@ const fmt = (value, digits = 1) =>
     ? DASH
     : Number(value).toFixed(digits);
 
+const truncate = (text, limit) => {
+  if (!text) return DASH;
+  return text.length <= limit ? text : text.slice(0, limit - 1).trimEnd() + "…";
+};
+
 const pretty = (slug) =>
   String(slug ?? "")
     .replace(/_/g, " ")
@@ -397,7 +402,7 @@ class EvStatsPanel extends HTMLElement {
         (b) =>
           `<span><i class="sw" style="background:${colour(b)}"></i>${esc(
             pretty(b)
-          )} ${fmt(detail[b].kwh, 1)} kWh</span>`
+          )} ${fmt(detail[b].kwh, detail[b].kwh < 1 ? 3 : 1)} kWh</span>`
       )
       .join("");
 
@@ -481,7 +486,7 @@ class EvStatsPanel extends HTMLElement {
                   ? DASH
                   : "+" + fmt(s.soc_delta, 0)}</td>
                 <td title="${esc(s.reason || "")}">${esc(
-                (s.reason || "").slice(0, 52) || DASH
+                truncate(s.reason, 52)
               )}</td>
               </tr>`;
             })

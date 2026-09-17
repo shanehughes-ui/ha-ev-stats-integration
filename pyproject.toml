@@ -1,0 +1,9 @@
+# Test configuration only. The integration itself has no build step and no
+# dependencies beyond what Home Assistant already ships.
+
+[tool.pytest.ini_options]
+# Required by pytest-homeassistant-custom-component: every test in tests_load
+# is a coroutine, and without this pytest refuses to run them rather than
+# saying why. The pure tests in tests/ are unaffected.
+asyncio_mode = "auto"
+testpaths = ["tests"]

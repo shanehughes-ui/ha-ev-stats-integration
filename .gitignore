@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 .DS_Store
+
+# Local tooling, not part of the integration
+.claude/

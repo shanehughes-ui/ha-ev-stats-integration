@@ -26,7 +26,7 @@ LOW = classify_mod.CONFIDENCE_LOW
 CONFLICT = classify_mod.VERDICT_CONFLICT
 IDLE = classify_mod.VERDICT_IDLE
 
-WORK = ("allison_work",)
+WORK = ("workplace",)
 TH = Thresholds()
 
 
@@ -94,7 +94,7 @@ def test_house_supplied_it_with_no_usable_fix() -> None:
 
 def test_house_supplied_it_but_the_car_was_at_work() -> None:
     result = classify(
-        ev(house_ratio=Decimal("0.95"), gps_zone="allison_work", gps_fresh=True), TH
+        ev(house_ratio=Decimal("0.95"), gps_zone="workplace", gps_fresh=True), TH
     )
     assert result.verdict == CONFLICT
     assert result.bucket == "unknown"
@@ -103,9 +103,9 @@ def test_house_supplied_it_but_the_car_was_at_work() -> None:
 # --------------------------------------------------- the house did not pay --
 def test_house_did_not_supply_it_and_the_car_was_at_work() -> None:
     result = classify(
-        ev(house_ratio=Decimal("0.02"), gps_zone="allison_work", gps_fresh=True), TH
+        ev(house_ratio=Decimal("0.02"), gps_zone="workplace", gps_fresh=True), TH
     )
-    assert result.bucket == "allison_work"
+    assert result.bucket == "workplace"
     assert result.confidence == HIGH
 
 
@@ -129,9 +129,9 @@ def test_a_zero_ratio_is_a_finding_not_an_absence() -> None:
     here" as "no opinion", and the session falls back to GPS it did not need.
     """
     result = classify(
-        ev(house_ratio=Decimal(0), gps_zone="allison_work", gps_fresh=True), TH
+        ev(house_ratio=Decimal(0), gps_zone="workplace", gps_fresh=True), TH
     )
-    assert result.bucket == "allison_work"
+    assert result.bucket == "workplace"
 
 
 # ------------------------------------------------------- the middle ground --
@@ -146,15 +146,15 @@ def test_the_band_between_the_thresholds_means_nothing_physical() -> None:
 
 def test_an_odd_ratio_is_not_believed_harder_because_gps_agrees() -> None:
     result = classify(
-        ev(house_ratio=Decimal("0.45"), gps_zone="allison_work", gps_fresh=True), TH
+        ev(house_ratio=Decimal("0.45"), gps_zone="workplace", gps_fresh=True), TH
     )
     assert result.bucket == "unknown"
 
 
 # --------------------------------------------------------- no house at all --
 def test_without_a_house_meter_it_falls_back_to_location() -> None:
-    result = classify(ev(gps_zone="allison_work", gps_fresh=True), TH)
-    assert result.bucket == "allison_work"
+    result = classify(ev(gps_zone="workplace", gps_fresh=True), TH)
+    assert result.bucket == "workplace"
     assert result.confidence == MEDIUM
 
 
@@ -180,7 +180,7 @@ def test_work_buckets_come_from_configuration() -> None:
     two = ev(
         gps_zone="depot",
         gps_fresh=True,
-        work_buckets=("allison_work", "depot"),
+        work_buckets=("workplace", "depot"),
     )
     assert classify(two, TH).bucket == "depot"
 

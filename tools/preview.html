@@ -1,0 +1,144 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>EV Stats panel — preview</title>
+<!--
+  Renders the real panel against sample data, with no Home Assistant running.
+
+  It exists for two reasons. Screenshots for the README come from here rather
+  than from somebody's live instance, so no zone name, address or workplace can
+  end up in a public repository by accident - the sample zone is called
+  "Workplace" and there are no coordinates anywhere in this file. And it makes
+  the dashboard editable without waiting for a car to charge.
+
+  The figures are the real measured ones from three weeks of running the
+  system this grew out of: a 44.1 kWh usable pack against 47.1 nominal, 12.84
+  kWh/100 km at the wall, a free share of 99.8%. Everything identifying is
+  invented.
+
+  Open it directly in a browser. No build step, no server.
+-->
+<style>
+  html, body { margin: 0; background: #14181a; }
+</style>
+
+<script type="module">
+  import "../custom_components/ev_stats/panel/ev-stats-panel.js";
+
+  const state = (id, value, attributes = {}) => [id, { entity_id: id, state: String(value), attributes }];
+
+  /* The entity ids a car called "EX2" would actually produce. */
+  const ENTITIES = {
+    free_share: "sensor.ex2_free_share",
+    net_saving: "sensor.ex2_net_saving",
+    free_charging_value: "sensor.ex2_free_charging_value",
+    consumption_since_install: "sensor.ex2_consumption",
+    consumption_car: "sensor.ex2_consumption_car",
+    cost_total: "sensor.ex2_charging_cost",
+    cost_per_100km: "sensor.ex2_cost_per_100_km",
+    solar_share_home: "sensor.ex2_home_solar_share",
+    activity: "sensor.ex2_activity",
+    balance_check: "sensor.ex2_balance_check",
+    energy_unknown: "sensor.ex2_unknown",
+    session_active: "binary_sensor.ex2_session_running",
+    session_energy: "sensor.ex2_session_energy",
+    session_duration: "sensor.ex2_session_duration",
+    distance_since_install: "sensor.ex2_distance_since_install",
+    km_per_day: "sensor.ex2_distance_per_day",
+    co2_avoided: "sensor.ex2_carbon_avoided",
+    pack_estimate: "sensor.ex2_usable_pack_size",
+    tyre_lowest_cold: "sensor.ex2_lowest_tyre",
+    tyre_drift: "sensor.ex2_tyre_drift",
+    service_due_in: "sensor.ex2_service_due_in",
+    secure: "sensor.ex2_security",
+  };
+
+  const states = Object.fromEntries([
+    state(ENTITIES.free_share, 99.8),
+    state(ENTITIES.net_saving, 486.20),
+    state(ENTITIES.free_charging_value, 14.85),
+    state(ENTITIES.consumption_since_install, 12.84),
+    state(ENTITIES.consumption_car, 11.0),
+    state(ENTITIES.cost_total, 3.41),
+    state(ENTITIES.cost_per_100km, 0.31),
+    state(ENTITIES.solar_share_home, 71.4),
+    state(ENTITIES.activity, "charging"),
+    state(ENTITIES.balance_check, 0.0),
+    state(ENTITIES.energy_unknown, 0.033),
+    state(ENTITIES.session_active, "on", { routed_to: "workplace", started: "2026-09-17T08:12:00" }),
+    state(ENTITIES.session_energy, 9.42),
+    state(ENTITIES.session_duration, 1.62),
+    state(ENTITIES.distance_since_install, 1098),
+    state(ENTITIES.km_per_day, 52.3),
+    state(ENTITIES.co2_avoided, 133.2),
+    state(ENTITIES.pack_estimate, 44.11, { sample_count: 5, kwh_per_year: null }),
+    state(ENTITIES.tyre_lowest_cold, 36.98, {
+      corners: { fl: 37.42, fr: 37.61, rl: 36.98, rr: 37.15 },
+      spread: 0.63,
+      lowest_corner: "rl",
+    }),
+    state(ENTITIES.tyre_drift, -0.21),
+    state(ENTITIES.service_due_in, 287, { binding: "time" }),
+    state(ENTITIES.secure, "secure", { open_items: [] }),
+  ]);
+
+  const ago = (hours) => new Date(Date.now() - hours * 3600e3).toISOString();
+
+  const CAR = {
+    entry_id: "preview",
+    title: "EX2",
+    buckets: ["unknown", "home", "workplace", "public_dc", "other"],
+    work_buckets: ["workplace"],
+    entities: ENTITIES,
+    totals: { sessions: 10, trips: 40, session_cap: 500, trip_cap: 1000 },
+    buckets_detail: {
+      unknown: { kwh: 0.033, cost: 0, solar_kwh: 0 },
+      home: { kwh: 14.02, cost: 3.41, solar_kwh: 10.01 },
+      workplace: { kwh: 127.06, cost: 0, solar_kwh: 0 },
+      public_dc: { kwh: 0, cost: 0, solar_kwh: 0 },
+      other: { kwh: 0, cost: 0, solar_kwh: 0 },
+    },
+    sessions: [
+      { id: "1", end: ago(196), bucket: "workplace", kwh: 16.94, peak_kw: 6.79, soc_delta: 38,
+        reason: "house supplied only 2%, and the car was at workplace", confidence: "high" },
+      { id: "2", end: ago(172), bucket: "home", kwh: 8.22, peak_kw: 2.21, soc_delta: 18,
+        reason: "house supplied 97% of it", confidence: "high" },
+      { id: "3", end: ago(148), bucket: "workplace", kwh: 17.31, peak_kw: 6.81, soc_delta: 40,
+        reason: "house supplied only 1%, and the car was at workplace", confidence: "high" },
+      { id: "4", end: ago(120), bucket: "unknown", kwh: 3.11, peak_kw: 2.18, soc_delta: 7,
+        reason: "house-supply ratio 41% sits between the thresholds and means nothing physical",
+        confidence: "medium" },
+      { id: "5", end: ago(96), bucket: "home", kwh: 5.80, peak_kw: 2.20, soc_delta: 13,
+        corrected: true, original_bucket: "unknown",
+        reason: "no house-supply proof; fix places the car at home", confidence: "medium" },
+      { id: "6", end: ago(72), bucket: "workplace", kwh: 20.05, peak_kw: 6.78, soc_delta: 45,
+        reason: "house supplied only 2%, and the car was at workplace", confidence: "high",
+        flags: ["late_close"] },
+      { id: "7", end: ago(24), bucket: "workplace", kwh: 18.40, peak_kw: 6.80, soc_delta: 41,
+        reason: "house supplied only 3%, and the car was at workplace", confidence: "high" },
+    ],
+    trips: [
+      { id: "a", end: ago(190), km: 31.4, minutes: 38, avg_kmh: 50, soc_start: 74, soc_end: 66, ended_at: "workplace" },
+      { id: "b", end: ago(182), km: 31.1, minutes: 41, avg_kmh: 46, soc_start: 98, soc_end: 90, ended_at: "home" },
+      { id: "c", end: ago(166), km: 12.8, minutes: 22, avg_kmh: 35, soc_start: 90, soc_end: 87, ended_at: "other" },
+      { id: "d", end: ago(142), km: 31.6, minutes: 36, avg_kmh: 53, soc_start: 87, soc_end: 79, ended_at: "workplace" },
+      { id: "e", end: ago(118), km: 48.2, minutes: 51, avg_kmh: 57, soc_start: 79, soc_end: 66, ended_at: "other" },
+      { id: "f", end: ago(20), km: 31.3, minutes: 39, avg_kmh: 48, soc_start: 96, soc_end: 88, ended_at: "workplace" },
+    ],
+    estimates: [
+      { at: ago(600), implied: 44.10, soc_delta: 40, ambient_c: 17 },
+      { at: ago(480), implied: 44.58, soc_delta: 43, ambient_c: 19 },
+      { at: ago(360), implied: 43.17, soc_delta: 31, ambient_c: 12 },
+      { at: ago(240), implied: 44.57, soc_delta: 45, ambient_c: 21 },
+      { at: ago(72), implied: 44.13, soc_delta: 45, ambient_c: 18 },
+    ],
+  };
+
+  const hass = {
+    states,
+    callWS: async () => ({ cars: [CAR] }),
+  };
+
+  const panel = document.createElement("ev-stats-panel");
+  document.body.appendChild(panel);
+  panel.hass = hass;
+</script>

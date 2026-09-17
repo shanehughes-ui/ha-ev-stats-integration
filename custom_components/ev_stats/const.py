@@ -53,7 +53,7 @@ CONF_TYRE_TEMPERATURE: Final = "tyre_temperature"  # list, 4 entities
 CONF_SECURITY_ENTITIES: Final = "security_entities"
 
 # --- location ---------------------------------------------------------------
-# Work zones are a LIST. The original package hard-coded a single `allison_work`
+# Work zones are a LIST. The original package hard-coded a single `workplace`
 # slug into the tariff list, the classifier, the display map and a notification
 # action string; making it a list is most of what "fully parameterised" means.
 CONF_WORK_ZONES: Final = "work_zones"

@@ -23,7 +23,7 @@ FULL = {
     "cost_total": "sensor.ex2_charging_cost",
     "energy_unknown": "sensor.ex2_unknown",
     "energy_home": "sensor.ex2_home",
-    "energy_allison_work": "sensor.ex2_allison_work",
+    "energy_workplace": "sensor.ex2_workplace",
     "session_classification": "sensor.ex2_session_classification",
     "session_energy": "sensor.ex2_session_energy",
     "house_supply_ratio": "sensor.ex2_house_supply_ratio",
@@ -41,7 +41,7 @@ FULL = {
     "secure": "sensor.ex2_security",
     "route": "select.ex2_charging_attributed_to",
 }
-BUCKETS = ("unknown", "home", "allison_work", "public_dc", "other")
+BUCKETS = ("unknown", "home", "workplace", "public_dc", "other")
 
 MINIMAL = {
     "free_share": "sensor.van_free_share",
@@ -125,7 +125,7 @@ def test_an_installation_with_nothing_still_produces_a_view() -> None:
 def test_work_buckets_appear_by_whatever_they_are_called() -> None:
     """No hard-coded workplace slug anywhere in the dashboard either."""
     view = lovelace.build_view("EX2", FULL, BUCKETS)
-    assert "sensor.ex2_allison_work" in entities_of(view)
+    assert "sensor.ex2_workplace" in entities_of(view)
 
 
 # ------------------------------------------------------------- the table --

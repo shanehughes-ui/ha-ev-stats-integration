@@ -316,7 +316,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await runtime.async_start()
 
     integration = await async_get_integration(hass, DOMAIN)
-    await panel.async_register(hass, str(integration.version))
+    try:
+        await panel.async_register(hass, str(integration.version))
+    except Exception:  # noqa: BLE001
+        # Broad on purpose, and this is the one place it is. Whatever the
+        # frontend does or does not do, the ledger must still load - the
+        # figures are the point and the page is a way of looking at them.
+        _LOGGER.exception("Could not register the EV Stats panel; carrying on")
 
     # Populated BEFORE forwarding: each platform's async_setup_entry reads this
     # immediately, so the order is load-bearing rather than stylistic.

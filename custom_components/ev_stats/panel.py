@@ -39,15 +39,30 @@ STATIC_URL = f"/{DOMAIN}_panel"
 MODULE_FILE = "ev-stats-panel.js"
 
 
-async def async_register(hass: HomeAssistant, version: str) -> None:
+async def async_register(hass: HomeAssistant, version: str) -> bool:
     """Serve the panel, once, however many cars are configured.
 
     One panel for the integration rather than one per car: the page itself
     lists whatever is configured and lets you switch between them, which is
     less cluttered than a sidebar entry per vehicle.
+
+    A dashboard must never be able to stop the rest of this working, so the
+    frontend is an `after_dependency` and its absence is handled here rather
+    than declared as a requirement. Declaring `panel_custom` a hard dependency
+    is how this was written first, and it meant an installation with no
+    frontend - or one where the frontend failed to set up for its own reasons -
+    got no ledger, no sensors and no services either. The energy accounting
+    does not need a page to be correct.
     """
     if hass.data.get(f"{DOMAIN}_panel_registered"):
-        return
+        return True
+
+    if "panel_custom" not in hass.config.components:
+        _LOGGER.info(
+            "The frontend is not available, so the EV Stats panel is not being "
+            "registered. Everything else works as normal"
+        )
+        return False
 
     await hass.http.async_register_static_paths(
         [
@@ -78,6 +93,7 @@ async def async_register(hass: HomeAssistant, version: str) -> None:
     )
     hass.data[f"{DOMAIN}_panel_registered"] = True
     _LOGGER.debug("EV Stats panel registered at /%s", PANEL_URL_PATH)
+    return True
 
 
 def async_remove(hass: HomeAssistant) -> None:

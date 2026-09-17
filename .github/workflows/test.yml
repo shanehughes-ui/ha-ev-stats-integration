@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  pure:
+    # The arithmetic and the judgement, with no Home Assistant anywhere. If
+    # this job ever needs it installed, the separation these modules exist for
+    # has been lost and that is worth failing over.
+    name: Pure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest pyyaml
+      - run: python -m pytest tests -q
+      - name: Nothing identifying is committed
+        # This check found a real person's name in the test fixtures on the
+        # day the repository went public. A dashboard meant to be shared, in a
+        # repository meant to be public, needs the check to be automatic - not
+        # something somebody remembers to do.
+        run: |
+          if grep -rniE "allison|gosford|[0-9]{2}\.[0-9]{4,},[ ]?1[0-9]{2}\.[0-9]{4,}"               --include="*.py" --include="*.js" --include="*.md"               --include="*.json" --include="*.html" --include="*.yaml" . ; then
+            echo "Something identifying is committed"
+            exit 1
+          fi
+
+      - name: Assert the pure modules import no Home Assistant
+        run: |
+          for module in trapezoid classify rolling buckets packsize derive rates; do
+            if grep -q homeassistant "custom_components/ev_stats/$module.py"; then
+              echo "$module.py imports Home Assistant"
+              exit 1
+            fi
+          done
+
+  loading:
+    # Does it actually load. Six phases of green linting is not the same
+    # claim, and the first time this ran it found that declaring panel_custom
+    # a hard dependency stopped the whole integration setting up wherever the
+    # frontend did not.
+    name: Loading
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest-homeassistant-custom-component
+      - run: python -m pytest tests_load -q
