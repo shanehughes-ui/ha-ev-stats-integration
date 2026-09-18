@@ -272,7 +272,7 @@ class EvStatsPanel extends HTMLElement {
     const money = [e.petrol_cost_avoided, e.cost_total].filter(Boolean);
     const results = await Promise.all([
       buckets.length ? ask(buckets, ["change"], "month", 400) : {},
-      money.length === 2 ? ask(money, ["state"], "day", 30) : {},
+      money.length === 2 ? ask(money, ["change"], "day", 30) : {},
       src.battery ? ask([src.battery], ["mean"], "hour", 14) : {},
     ]);
     this._stats = { month: results[0], cost: results[1], soc: results[2] };
@@ -784,39 +784,45 @@ class EvStatsPanel extends HTMLElement {
     </figure>`;
   }
 
-  /* Money as an accumulating gap rather than two figures. The question is
-     about the distance between the lines, and that only reads as an answer
-     once you can watch it widen. */
+  /* What each day's driving would have cost in petrol, against what it did.
+     Per day over a rolling window, NOT two cumulative lines. Running totals
+     only ever rise, so the axis grows without bound, the early days compress
+     to nothing, and the shape is "line goes up" whether the economics got
+     better or worse. The lifetime total is a headline figure already. */
   _moneyChart() {
     const c = (this._stats || {}).cost || {};
     const e = this._car.entities;
-    const pts = (rows) =>
-      (rows || []).filter((r) => r.state != null).map((r) => [r.start, r.state]);
-    const P = pts(c[e.petrol_cost_avoided]);
-    const Q = pts(c[e.cost_total]);
-    if (P.length < 2) return "";
-    const max = Math.max(
-      ...P.map((p) => p[1]),
-      ...Q.map((p) => p[1]),
-      1
-    );
-    const t0 = P[0][0];
-    const span = Math.max(1, P[P.length - 1][0] - t0);
-    const X = (t) => (((t - t0) / span) * 100).toFixed(2);
-    const Y = (v) => (34 - (v / max) * 30).toFixed(2);
-    const path = (A) =>
-      A.map((p, i) => (i ? "L" : "M") + X(p[0]) + "," + Y(p[1])).join(" ");
-    const ahead = P[P.length - 1][1] - (Q.length ? Q[Q.length - 1][1] : 0);
-    const paid = Q.length > 1
-      ? `<path d="${path(Q)}" fill="none" stroke="var(--evs-alert)" stroke-width="0.7" vector-effect="non-scaling-stroke"/>`
-      : "";
+    const rows = (r) =>
+      (r || []).filter((x) => x.change != null).map((x) => [x.start, x.change]);
+    const A = rows(c[e.petrol_cost_avoided]);
+    const P = Object.fromEntries(rows(c[e.cost_total]));
+    if (A.length < 2) return "";
+    const max = Math.max(...A.map((p) => p[1]), 1);
+    const bw = 100 / A.length;
+    let body = "";
+    A.forEach((p, i) => {
+      const h = (p[1] / max) * 30;
+      body +=
+        '<rect x="' + (i * bw + bw * 0.2).toFixed(2) + '" y="' + (34 - h).toFixed(2) +
+        '" width="' + (bw * 0.6).toFixed(2) + '" height="' + h.toFixed(2) +
+        '" fill="var(--evs-free)" opacity=".85"/>';
+      /* What was actually paid, inside the bar. On most days a hairline, and
+         that IS the finding - scaling it up to be visible would overstate it. */
+      const paid = P[p[0]] || 0;
+      if (paid > 0.0005) {
+        const ph = Math.max(0.5, (paid / max) * 30);
+        body +=
+          '<rect x="' + (i * bw + bw * 0.2).toFixed(2) + '" y="' + (34 - ph).toFixed(2) +
+          '" width="' + (bw * 0.6).toFixed(2) + '" height="' + ph.toFixed(2) +
+          '" fill="var(--evs-alert)"/>';
+      }
+    });
+    const ta = A.reduce((a, b) => a + b[1], 0);
+    const tp = Object.values(P).reduce((a, b) => a + b, 0);
     return `<figure style="margin-top:14px">
-      <figcaption>What it would have cost vs what it did <em>${CURRENCY}${fmt(ahead, 2)} ahead</em></figcaption>
-      <svg viewBox="0 0 100 38" preserveAspectRatio="none" style="height:120px">
-        <path d="${path(P)} L100,34 L0,34 Z" fill="var(--evs-free)" opacity=".18"/>
-        <path d="${path(P)}" fill="none" stroke="var(--evs-free)" stroke-width="0.7" vector-effect="non-scaling-stroke"/>
-        ${paid}
-      </svg>
+      <figcaption>What each day would have cost in petrol, and what it did
+        <em>${A.length} days &middot; ${CURRENCY}${fmt(ta - tp, 2)} ahead</em></figcaption>
+      <svg viewBox="0 0 100 38" preserveAspectRatio="none" style="height:120px">${body}</svg>
     </figure>`;
   }
 

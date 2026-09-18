@@ -163,8 +163,15 @@
   /* The gap widening: petrol avoided climbing steadily, electricity paid flat
      near zero, which is the whole point of the chart. */
   const costRows = since(30, DAY);
-  const petrolRows = costRows.map((t, i) => ({ start: t, state: +(86 + i * 5.9).toFixed(2) }));
-  const paidRows = costRows.map((t, i) => ({ start: t, state: +(i * 0.008).toFixed(3) }));
+    /* Per-day change now, not a running total: some days no driving at all,
+     one long trip, and a couple of home charges that actually cost something. */
+  const DRIVE = [0, 11.8, 12.1, 0, 38.4, 9.6, 11.9, 0, 12.2, 17.8, 0, 11.7, 12.0,
+                 9.4, 0, 12.1, 18.6, 11.8, 0, 12.3, 11.6, 0, 12.0, 16.9, 11.7,
+                 0, 12.2, 11.9, 13.4, 12.1];
+  const petrolRows = costRows.map((t, i) => ({ start: t, change: DRIVE[i % DRIVE.length] }));
+  const paidRows = costRows.map((t, i) => ({
+    start: t, change: i === 9 ? 0.14 : i === 22 ? 0.09 : 0,
+  }));
 
   const monthStart = (back) => {
     const d = new Date();
