@@ -137,6 +137,10 @@ class TripManager:
         self._unsub = async_track_state_change_event(
             self.hass, [self._engine], self._handle_engine
         )
+        # Same reasoning as the session: an engine already running when this
+        # loads emits no change, and a trip that starts ten minutes into the
+        # drive has lost the kilometres that came first.
+        self._evaluate()
 
     @callback
     def async_stop(self) -> None:
@@ -169,6 +173,11 @@ class TripManager:
     # -------------------------------------------------------------- trigger --
     @callback
     def _handle_engine(self, _event: Event[EventStateChangedData]) -> None:
+        self._evaluate()
+
+    @callback
+    def _evaluate(self) -> None:
+        """Decide what the current engine state means, event or not."""
         value = string_state(self.hass, self._engine)
         if value is None:
             return

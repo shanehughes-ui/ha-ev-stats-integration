@@ -210,6 +210,12 @@ class SessionManager:
                 timedelta(seconds=WATCHDOG_INTERVAL_S),
             )
         )
+        # A charge already running when this loads emits no state CHANGE, so
+        # nothing below would ever arm the opening timer and the session would
+        # wait for the watchdog - up to ten minutes, and then flagged
+        # `late_open` as though something had failed rather than as though the
+        # integration had simply started mid-charge. Evaluate once, now.
+        self._evaluate()
 
     @callback
     def async_stop(self) -> None:
@@ -333,6 +339,15 @@ class SessionManager:
     # -------------------------------------------------------------- trigger --
     @callback
     def _handle_power(self, _event: Event[EventStateChangedData]) -> None:
+        self._evaluate()
+
+    @callback
+    def _evaluate(self) -> None:
+        """Decide what the current power reading means.
+
+        Split out from the state-change handler so that startup can ask the
+        same question without an event to hand.
+        """
         power = numeric_state(self.hass, self._power)
         if power is None:
             # A dropout is not a stop. The car goes unavailable several times a

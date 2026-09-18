@@ -162,6 +162,39 @@ async def test_no_work_zone_means_no_work_bucket(hass: HomeAssistant) -> None:
     assert "work_share" not in keys
 
 
+# -------------------------------------------------------- already running --
+async def test_a_charge_already_running_at_startup_is_noticed(
+    hass: HomeAssistant,
+) -> None:
+    """Found on a live install, by watching it not happen.
+
+    The session manager reacts to state CHANGES of the charging power. A car
+    already charging steadily when the integration loads emits none, so nothing
+    armed the opening timer and the session waited for the watchdog - up to ten
+    minutes later, and then flagged `late_open` as though something had failed
+    rather than as though the integration had started mid-charge.
+
+    Startup now evaluates the reading once. The timer being armed is the
+    assertion: the session itself is a debounce away, which is correct.
+    """
+    seed(hass)
+    hass.states.async_set(POWER, "1.69", {"unit_of_measurement": "kW"})
+    entry = await setup_entry(hass)
+
+    session = hass.data[DOMAIN][entry.entry_id].session
+    assert session._open_timer is not None, "a charge in progress was not noticed"
+    assert not session.state.active, "it should still wait out the debounce"
+
+
+async def test_a_parked_car_at_startup_arms_nothing(hass: HomeAssistant) -> None:
+    """The other half: evaluating at startup must not invent a session."""
+    seed(hass)
+    entry = await setup_entry(hass)
+    session = hass.data[DOMAIN][entry.entry_id].session
+    assert session._open_timer is None
+    assert not session.state.active
+
+
 # -------------------------------------------------------------- the ledger --
 async def test_the_services_are_registered(hass: HomeAssistant) -> None:
     seed(hass)
