@@ -537,7 +537,7 @@ class EvStatsPanel extends HTMLElement {
       : `<p class="empty">No charging sessions recorded yet.</p>`;
 
     return `<section>
-      ${this._head("Charging", `${rows.length} most recent`)}
+      ${this._head("Charging", rows.length ? `${rows.length} most recent` : "")}
       ${cells}
       ${this._monthChart()}
       <div style="height:14px"></div>
@@ -580,7 +580,11 @@ class EvStatsPanel extends HTMLElement {
             )
             .join("")}
           </tbody></table></div>`
-      : `<p class="empty">No trips recorded yet. Trips need an engine-state entity.</p>`;
+      : `<p class="empty">${
+          this._car.entities.trips
+            ? "No trips recorded yet."
+            : "Trips need an engine-state entity, which is not configured."
+        }</p>`;
 
     return `<section>
       ${this._head("Driving")}
