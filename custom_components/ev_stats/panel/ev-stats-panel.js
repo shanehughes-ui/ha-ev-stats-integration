@@ -20,6 +20,10 @@
 
 const WS_DASHBOARD = "ev_stats/dashboard";
 
+/* Only ever prefixed to a figure this page computed from the ledger's own
+   cost, never used to convert anything. */
+const CURRENCY = "$";
+
 /* Bucket colours. `unknown` is violet rather than a shade of grey on purpose:
    unattributed energy should catch the eye, not blend into the rules. */
 const BUCKET_COLOUR = {
@@ -106,6 +110,9 @@ section{padding:34px 0 0}
 .srckey{display:flex;flex-wrap:wrap;gap:18px;margin-top:12px;font-family:var(--evs-mono);
   font-size:11.5px;color:var(--evs-ink-dim)}
 .srckey span{display:inline-flex;align-items:center;gap:7px}
+.tl{position:relative;height:38px;border:1px solid var(--evs-rule);overflow:hidden}
+.tl i{position:absolute;top:0;bottom:0;display:block;font-style:normal}
+.axis{display:flex;font-family:var(--evs-mono);font-size:10.5px;color:var(--evs-muted);margin-top:6px}
 .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
 
 .tscroll{overflow-x:auto;border:1px solid var(--evs-rule-soft);background:var(--evs-panel)}
@@ -229,12 +236,46 @@ class EvStatsPanel extends HTMLElement {
       const result = await this._hass.callWS({ type: WS_DASHBOARD });
       this._cars = result.cars || [];
       this._error = this._cars.length ? null : "No cars are configured yet.";
+      if (this._car) await this._loadStats();
     } catch (err) {
       this._error = `Could not load: ${err.message || err}`;
       this._cars = [];
     }
     this._signature = this._signatureOf();
     this._render();
+  }
+
+  /* Long-term statistics, fetched by the page itself.
+     The dashboard command deliberately does not carry these: they are large,
+     they move on a different cadence to everything else, and `hass` here is
+     already authenticated, so proxying them through the integration would buy
+     nothing. Each request falls back to {} on failure, so a chart that cannot
+     be drawn simply is not drawn - it does not take the page down. */
+  async _loadStats() {
+    const e = this._car.entities;
+    const src = this._car.sources || {};
+    const ago = (days) => new Date(Date.now() - days * 864e5).toISOString();
+    const ask = (ids, types, period, days) =>
+      this._hass
+        .callWS({
+          type: "recorder/statistics_during_period",
+          start_time: ago(days),
+          statistic_ids: ids.filter(Boolean),
+          period: period,
+          types: types,
+        })
+        .catch(() => ({}));
+
+    const buckets = this._car.buckets
+      .map((b) => e["energy_" + b])
+      .filter(Boolean);
+    const money = [e.petrol_cost_avoided, e.cost_total].filter(Boolean);
+    const results = await Promise.all([
+      buckets.length ? ask(buckets, ["change"], "month", 400) : {},
+      money.length === 2 ? ask(money, ["state"], "day", 30) : {},
+      src.battery ? ask([src.battery], ["mean"], "hour", 14) : {},
+    ]);
+    this._stats = { month: results[0], cost: results[1], soc: results[2] };
   }
 
   get _car() {
@@ -410,6 +451,7 @@ class EvStatsPanel extends HTMLElement {
       ${this._head("Where the energy came from", fmt(total, 1) + " kWh total")}
       <div class="srcbar">${bars}</div>
       <div class="srckey">${key}</div>
+      ${this._moneyChart()}
     </section>`;
   }
 
@@ -497,6 +539,7 @@ class EvStatsPanel extends HTMLElement {
     return `<section>
       ${this._head("Charging", `${rows.length} most recent`)}
       ${cells}
+      ${this._monthChart()}
       <div style="height:14px"></div>
       ${table}
     </section>`;
@@ -542,6 +585,7 @@ class EvStatsPanel extends HTMLElement {
     return `<section>
       ${this._head("Driving")}
       ${cells}
+      ${this._timeline()}
       <div style="height:14px"></div>
       ${table}
     </section>`;
@@ -590,6 +634,7 @@ class EvStatsPanel extends HTMLElement {
           "Against the tyres' own 30-day history, corrected for temperature"
         )}
       </div>
+      ${this._socChart()}
       ${spark}
       <div style="height:14px"></div>
       ${tyres}
@@ -650,6 +695,196 @@ class EvStatsPanel extends HTMLElement {
       <div class="v ${tone}">${value}${unit ? `<u>${esc(unit)}</u>` : ""}</div>
       ${caption ? `<div class="cap">${caption}</div>` : ""}
     </div>`;
+  }
+
+  /* What the car was doing, built from the session and trip logs.
+     NOT from the history of an activity sensor. Such a sensor changes
+     constantly, is among the first things anyone excludes from the recorder,
+     and its history then stops dead while the logs carry on regardless. */
+  _activity() {
+    const at = (v) => {
+      if (!v) return null;
+      /* `start` is naive local, `end` carries an offset. Date reads each
+         correctly once the space becomes a T; treating them alike would shift
+         every span by the whole UTC offset. */
+      const t = new Date(String(v).replace(" ", "T"));
+      return isNaN(t) ? null : Math.round(t.getTime() / 1000);
+    };
+    const now = Math.round(Date.now() / 1000);
+    const floor = now - 10 * 86400;
+    const busy = [];
+    for (const rec of this._car.sessions || []) {
+      const a = at(rec.start);
+      const b = at(rec.end);
+      if (a && b && b > a) busy.push([a, b, "charging"]);
+    }
+    for (const rec of this._car.trips || []) {
+      const a = at(rec.start);
+      const b = at(rec.end);
+      if (a && b && b > a) busy.push([a, b, "driving"]);
+    }
+    // Driving outranks charging where they overlap, as the activity does.
+    busy.sort((x, y) => x[0] - y[0] || (x[2] === "driving" ? -1 : 1));
+    const spans = [];
+    let cursor = floor;
+    for (const item of busy) {
+      let a = item[0];
+      const b = item[1];
+      if (b <= floor) continue;
+      a = Math.max(a, floor, cursor);
+      if (b <= a) continue;
+      if (a > cursor) spans.push([cursor, a, "parked"]);
+      spans.push([a, b, item[2]]);
+      cursor = b;
+    }
+    if (cursor < now) spans.push([cursor, now, "parked"]);
+    return spans;
+  }
+
+  _timeline() {
+    const sp = this._activity();
+    if (sp.length < 2) return "";
+    const COL = {
+      driving: "--evs-cool",
+      charging: "--evs-free",
+      parked: "--evs-rule",
+    };
+    const t0 = sp[0][0];
+    const t1 = sp[sp.length - 1][1];
+    const span = Math.max(1, t1 - t0);
+    const x = (t) => ((t - t0) / span) * 100;
+    const held = {};
+    const bars = sp
+      .map((g) => {
+        held[g[2]] = (held[g[2]] || 0) + (g[1] - g[0]);
+        const w = Math.max(0.12, x(g[1]) - x(g[0]));
+        const o = g[2] === "parked" ? 0.35 : 1;
+        return (
+          '<i style="left:' + x(g[0]).toFixed(3) + "%;width:" + w.toFixed(3) +
+          "%;background:var(" + COL[g[2]] + ");opacity:" + o + '"></i>'
+        );
+      })
+      .join("");
+    const key = Object.entries(held)
+      .sort((a, b) => b[1] - a[1])
+      .map(
+        (kv) =>
+          '<span><i class="sw" style="background:var(' + COL[kv[0]] + ')"></i>' +
+          esc(kv[0]) + " " + (kv[1] / 3600).toFixed(1) + " h</span>"
+      )
+      .join("");
+    return `<figure style="margin-top:14px">
+      <figcaption>What the car was doing <em>${(span / 86400).toFixed(0)} days</em></figcaption>
+      <div class="tl">${bars}</div>
+      <div class="srckey" style="margin-top:9px">${key}</div>
+    </figure>`;
+  }
+
+  /* Money as an accumulating gap rather than two figures. The question is
+     about the distance between the lines, and that only reads as an answer
+     once you can watch it widen. */
+  _moneyChart() {
+    const c = (this._stats || {}).cost || {};
+    const e = this._car.entities;
+    const pts = (rows) =>
+      (rows || []).filter((r) => r.state != null).map((r) => [r.start, r.state]);
+    const P = pts(c[e.petrol_cost_avoided]);
+    const Q = pts(c[e.cost_total]);
+    if (P.length < 2) return "";
+    const max = Math.max(
+      ...P.map((p) => p[1]),
+      ...Q.map((p) => p[1]),
+      1
+    );
+    const t0 = P[0][0];
+    const span = Math.max(1, P[P.length - 1][0] - t0);
+    const X = (t) => (((t - t0) / span) * 100).toFixed(2);
+    const Y = (v) => (34 - (v / max) * 30).toFixed(2);
+    const path = (A) =>
+      A.map((p, i) => (i ? "L" : "M") + X(p[0]) + "," + Y(p[1])).join(" ");
+    const ahead = P[P.length - 1][1] - (Q.length ? Q[Q.length - 1][1] : 0);
+    const paid = Q.length > 1
+      ? `<path d="${path(Q)}" fill="none" stroke="var(--evs-alert)" stroke-width="0.7" vector-effect="non-scaling-stroke"/>`
+      : "";
+    return `<figure style="margin-top:14px">
+      <figcaption>What it would have cost vs what it did <em>${CURRENCY}${fmt(ahead, 2)} ahead</em></figcaption>
+      <svg viewBox="0 0 100 38" preserveAspectRatio="none" style="height:120px">
+        <path d="${path(P)} L100,34 L0,34 Z" fill="var(--evs-free)" opacity=".18"/>
+        <path d="${path(P)}" fill="none" stroke="var(--evs-free)" stroke-width="0.7" vector-effect="non-scaling-stroke"/>
+        ${paid}
+      </svg>
+    </figure>`;
+  }
+
+  /* A daily chart answers "what happened this week". This answers "is the
+     pattern holding", and they are not the same question. */
+  _monthChart() {
+    const m = (this._stats || {}).month || {};
+    const e = this._car.entities;
+    const cols = this._car.buckets
+      .map((b) => ({ bucket: b, rows: m[e["energy_" + b]] || [] }))
+      .filter((c) => c.rows.length);
+    if (!cols.length) return "";
+    const months = cols[0].rows.map((r) => r.start);
+    if (!months.length) return "";
+    const at = (c, i) => Math.max(0, (c.rows[i] || {}).change || 0);
+    const totals = months.map((_, i) => cols.reduce((a, c) => a + at(c, i), 0));
+    const max = Math.max(...totals, 1);
+    const colour = (b) =>
+      this._car.work_buckets.includes(b)
+        ? WORK_COLOUR
+        : BUCKET_COLOUR[b] || "var(--evs-muted)";
+    const bw = 100 / months.length;
+    let body = "";
+    months.forEach((ms, i) => {
+      let base = 0;
+      cols.forEach((c) => {
+        const v = at(c, i);
+        if (v <= 0.01) return;
+        const h = (v / max) * 30;
+        const y = 34 - (base / max) * 30 - h;
+        body +=
+          '<rect x="' + (i * bw + bw * 0.22).toFixed(2) + '" y="' + y.toFixed(2) +
+          '" width="' + (bw * 0.56).toFixed(2) + '" height="' + h.toFixed(2) +
+          '" fill="' + colour(c.bucket) + '"/>';
+        base += v;
+      });
+    });
+    const labels = months
+      .map(
+        (ms) =>
+          '<span style="flex:1;text-align:center">' +
+          esc(new Date(ms).toLocaleDateString(undefined, { month: "short" })) +
+          "</span>"
+      )
+      .join("");
+    return `<figure style="margin-top:14px">
+      <figcaption>Energy per month <em>${months.length} months</em></figcaption>
+      <svg viewBox="0 0 100 38" preserveAspectRatio="none" style="height:110px">${body}</svg>
+      <div class="axis">${labels}</div>
+    </figure>`;
+  }
+
+  /* Hourly, not daily. The sawtooth IS the information - how deep the pack is
+     being cycled - and a daily mean flattens exactly that away. */
+  _socChart() {
+    const src = this._car.sources || {};
+    const rows = ((this._stats || {}).soc || {})[src.battery] || [];
+    const v = rows.filter((r) => r.mean != null).map((r) => [r.start, r.mean]);
+    if (v.length < 2) return "";
+    const t0 = v[0][0];
+    const span = Math.max(1, v[v.length - 1][0] - t0);
+    const X = (t) => (((t - t0) / span) * 100).toFixed(2);
+    const Y = (q) => (34 - (q / 100) * 30).toFixed(2);
+    const d = v.map((p, i) => (i ? "L" : "M") + X(p[0]) + "," + Y(p[1])).join(" ");
+    return `<figure style="margin-top:14px">
+      <figcaption>Charge level <em>14 days &middot; 20% is the floor an LFP pack should not sit below</em></figcaption>
+      <svg viewBox="0 0 100 38" preserveAspectRatio="none" style="height:120px">
+        <line x1="0" y1="${Y(20)}" x2="100" y2="${Y(20)}" stroke="var(--evs-alert)" stroke-width="0.5" stroke-dasharray="2 2" opacity=".8" vector-effect="non-scaling-stroke"/>
+        <path d="${d} L100,34 L0,34 Z" fill="var(--evs-cool)" opacity=".16"/>
+        <path d="${d}" fill="none" stroke="var(--evs-cool)" stroke-width="0.7" vector-effect="non-scaling-stroke"/>
+      </svg>
+    </figure>`;
   }
 
   _spark(values) {

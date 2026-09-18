@@ -50,6 +50,11 @@
     tyre_drift: "sensor.ex2_tyre_drift",
     service_due_in: "sensor.ex2_service_due_in",
     secure: "sensor.ex2_security",
+    energy_workplace: "sensor.ex2_workplace",
+    energy_home: "sensor.ex2_home",
+    energy_public_dc: "sensor.ex2_public_dc",
+    energy_other: "sensor.ex2_other",
+    petrol_cost_avoided: "sensor.ex2_petrol_cost_avoided",
   };
 
   const states = Object.fromEntries([
@@ -89,6 +94,9 @@
     buckets: ["unknown", "home", "workplace", "public_dc", "other"],
     work_buckets: ["workplace"],
     entities: ENTITIES,
+    // The car's own battery entity, which belongs to the vehicle
+    // integration rather than to EV Stats.
+    sources: { battery: "sensor.ex2_battery_level" },
     totals: { sessions: 10, trips: 40, session_cap: 500, trip_cap: 1000 },
     buckets_detail: {
       unknown: { kwh: 0.033, cost: 0, solar_kwh: 0 },
@@ -98,31 +106,31 @@
       other: { kwh: 0, cost: 0, solar_kwh: 0 },
     },
     sessions: [
-      { id: "1", end: ago(196), bucket: "workplace", kwh: 16.94, peak_kw: 6.79, soc_delta: 38,
+      { id: "1", start: ago(198.5), end: ago(196), bucket: "workplace", kwh: 16.94, peak_kw: 6.79, soc_delta: 38,
         reason: "house supplied only 2%, and the car was at workplace", confidence: "high" },
-      { id: "2", end: ago(172), bucket: "home", kwh: 8.22, peak_kw: 2.21, soc_delta: 18,
+      { id: "2", start: ago(177.9), end: ago(172), bucket: "home", kwh: 8.22, peak_kw: 2.21, soc_delta: 18,
         reason: "house supplied 97% of it", confidence: "high" },
-      { id: "3", end: ago(148), bucket: "workplace", kwh: 17.31, peak_kw: 6.81, soc_delta: 40,
+      { id: "3", start: ago(150.6), end: ago(148), bucket: "workplace", kwh: 17.31, peak_kw: 6.81, soc_delta: 40,
         reason: "house supplied only 1%, and the car was at workplace", confidence: "high" },
-      { id: "4", end: ago(120), bucket: "unknown", kwh: 3.11, peak_kw: 2.18, soc_delta: 7,
+      { id: "4", start: ago(121.4), end: ago(120), bucket: "unknown", kwh: 3.11, peak_kw: 2.18, soc_delta: 7,
         reason: "house-supply ratio 41% sits between the thresholds and means nothing physical",
         confidence: "medium" },
-      { id: "5", end: ago(96), bucket: "home", kwh: 5.80, peak_kw: 2.20, soc_delta: 13,
+      { id: "5", start: ago(97.9), end: ago(96), bucket: "home", kwh: 5.80, peak_kw: 2.20, soc_delta: 13,
         corrected: true, original_bucket: "unknown",
         reason: "no house-supply proof; fix places the car at home", confidence: "medium" },
-      { id: "6", end: ago(72), bucket: "workplace", kwh: 20.05, peak_kw: 6.78, soc_delta: 45,
+      { id: "6", start: ago(75.0), end: ago(72), bucket: "workplace", kwh: 20.05, peak_kw: 6.78, soc_delta: 45,
         reason: "house supplied only 2%, and the car was at workplace", confidence: "high",
         flags: ["late_close"] },
-      { id: "7", end: ago(24), bucket: "workplace", kwh: 18.40, peak_kw: 6.80, soc_delta: 41,
+      { id: "7", start: ago(26.8), end: ago(24), bucket: "workplace", kwh: 18.40, peak_kw: 6.80, soc_delta: 41,
         reason: "house supplied only 3%, and the car was at workplace", confidence: "high" },
     ],
     trips: [
-      { id: "a", end: ago(190), km: 31.4, minutes: 38, avg_kmh: 50, soc_start: 74, soc_end: 66, ended_at: "workplace" },
-      { id: "b", end: ago(182), km: 31.1, minutes: 41, avg_kmh: 46, soc_start: 98, soc_end: 90, ended_at: "home" },
-      { id: "c", end: ago(166), km: 12.8, minutes: 22, avg_kmh: 35, soc_start: 90, soc_end: 87, ended_at: "other" },
-      { id: "d", end: ago(142), km: 31.6, minutes: 36, avg_kmh: 53, soc_start: 87, soc_end: 79, ended_at: "workplace" },
-      { id: "e", end: ago(118), km: 48.2, minutes: 51, avg_kmh: 57, soc_start: 79, soc_end: 66, ended_at: "other" },
-      { id: "f", end: ago(20), km: 31.3, minutes: 39, avg_kmh: 48, soc_start: 96, soc_end: 88, ended_at: "workplace" },
+      { id: "a", start: ago(190.64), end: ago(190), km: 31.4, minutes: 38, avg_kmh: 50, soc_start: 74, soc_end: 66, ended_at: "workplace" },
+      { id: "b", start: ago(182.69), end: ago(182), km: 31.1, minutes: 41, avg_kmh: 46, soc_start: 98, soc_end: 90, ended_at: "home" },
+      { id: "c", start: ago(166.37), end: ago(166), km: 12.8, minutes: 22, avg_kmh: 35, soc_start: 90, soc_end: 87, ended_at: "other" },
+      { id: "d", start: ago(142.6), end: ago(142), km: 31.6, minutes: 36, avg_kmh: 53, soc_start: 87, soc_end: 79, ended_at: "workplace" },
+      { id: "e", start: ago(118.85), end: ago(118), km: 48.2, minutes: 51, avg_kmh: 57, soc_start: 79, soc_end: 66, ended_at: "other" },
+      { id: "f", start: ago(20.65), end: ago(20), km: 31.3, minutes: 39, avg_kmh: 48, soc_start: 96, soc_end: 88, ended_at: "workplace" },
     ],
     estimates: [
       { at: ago(600), implied: 44.10, soc_delta: 40, ambient_c: 17 },
@@ -133,9 +141,58 @@
     ],
   };
 
+  /* The panel asks for long-term statistics itself, so the stub has to answer
+     `recorder/statistics_during_period` as well as the dashboard command.
+     Shapes match what Home Assistant returns: rows keyed by statistic_id, each
+     carrying `start` in epoch milliseconds. */
+  const HOUR = 3600e3, DAY = 24 * HOUR;
+  const since = (n, step) =>
+    Array.from({ length: n }, (_, i) => Date.now() - (n - 1 - i) * step);
+
+  /* A fortnight of hourly SoC, shaped like real use: a workplace charge most
+     weekdays, drawn down by the commute in between. */
+  const socRows = since(14 * 24, HOUR).map((t, i) => {
+    const day = Math.floor(i / 24), hour = i % 24;
+    const weekday = (day + 2) % 7 < 5;
+    let soc = 55 + 30 * Math.sin((day / 14) * Math.PI);
+    if (weekday && hour >= 9 && hour <= 15) soc = Math.min(100, soc + (hour - 9) * 7);
+    else if (hour > 15) soc = Math.max(32, soc - (hour - 15) * 2.5);
+    return { start: t, mean: Math.round(Math.min(100, Math.max(31, soc)) * 10) / 10 };
+  });
+
+  /* The gap widening: petrol avoided climbing steadily, electricity paid flat
+     near zero, which is the whole point of the chart. */
+  const costRows = since(30, DAY);
+  const petrolRows = costRows.map((t, i) => ({ start: t, state: +(86 + i * 5.9).toFixed(2) }));
+  const paidRows = costRows.map((t, i) => ({ start: t, state: +(i * 0.008).toFixed(3) }));
+
+  const monthStart = (back) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - back, 1);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+  const months = [monthStart(1), monthStart(0)];
+
+  const STATS = {
+    [ENTITIES.energy_workplace]: months.map((t, i) => ({ start: t, change: [27.4, 137.3][i] })),
+    [ENTITIES.energy_home]: months.map((t, i) => ({ start: t, change: [0, 13.4][i] })),
+    [ENTITIES.energy_unknown]: months.map((t) => ({ start: t, change: 0 })),
+    [ENTITIES.petrol_cost_avoided]: petrolRows,
+    [ENTITIES.cost_total]: paidRows,
+    [CAR.sources.battery]: socRows,
+  };
+
   const hass = {
     states,
-    callWS: async () => ({ cars: [CAR] }),
+    callWS: async (msg) => {
+      if (msg.type === "recorder/statistics_during_period") {
+        const out = {};
+        for (const id of msg.statistic_ids || []) if (STATS[id]) out[id] = STATS[id];
+        return out;
+      }
+      return { cars: [CAR] };
+    },
   };
 
   const panel = document.createElement("ev-stats-panel");

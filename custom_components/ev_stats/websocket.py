@@ -23,7 +23,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
+from .const import CONF_BATTERY, DOMAIN
 from .store import MAX_SESSIONS, MAX_TRIPS
 
 WS_DASHBOARD = f"{DOMAIN}/dashboard"
@@ -84,6 +84,12 @@ async def ws_dashboard(
                 "buckets": list(runtime.buckets),
                 "work_buckets": list(runtime.work_buckets),
                 "entities": entity_map(hass, entry_id),
+                # The car's own entities, not this integration's. The panel
+                # charts state of charge, and that one belongs to whichever
+                # vehicle integration provides it - it cannot be guessed.
+                "sources": {
+                    "battery": runtime.config.required(CONF_BATTERY),
+                },
                 # Newest last, the order a table reads in. Trimmed to a page:
                 # the store holds far more, and sending all of it would make
                 # opening the panel slow for no benefit.
