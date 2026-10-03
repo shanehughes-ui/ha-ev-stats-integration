@@ -210,3 +210,96 @@ def test_every_verdict_explains_itself() -> None:
     ]
     for case in cases:
         assert classify(case, TH).reason
+
+
+# ------------------------------------------------------- the socket fingerprint --
+# Peak current, already resolved to a place by `fingerprint.py`. These cases are
+# the reason that module exists: both named sessions below were filed wrongly on
+# a live install, a fortnight apart, and both had the answer in the record.
+SocketMatch = pure.load("fingerprint").SocketMatch
+AT_HOME = SocketMatch("home", 4, "the socket drew 15.1 A, which matches 4 sessions at home")
+AT_WORK = SocketMatch("workplace", 4, "the socket drew 28.5 A, which matches 4 sessions at workplace")
+
+
+def test_30_sep_short_charge_at_home_with_a_fix_that_drifted() -> None:
+    """0.256 kWh over eight minutes, filed as `other`.
+
+    Too short for the house meter to prove anything, so the only evidence left
+    was a fix that was `fresh` - the odometer had not moved since it was
+    latched - and reading `other`. The socket was the house's own.
+    """
+    result = classify(ev(gps_zone="other", gps_fresh=True, socket=AT_HOME), TH)
+    assert result.bucket == "home"
+    # Never HIGH: it won over a fix, and HIGH authorises the tail sweep.
+    assert result.confidence == MEDIUM
+
+
+def test_19_sep_house_meter_and_socket_against_one_fix() -> None:
+    """4.561 kWh with a house-supply ratio of 1.6, filed as `conflict`.
+
+    The house meter measured the energy leaving the house. Before the socket
+    was admitted as evidence, one disagreeing fix was enough to make that
+    unresolvable.
+    """
+    reading = ev(
+        house_ratio=Decimal("1.616"), gps_zone="other", gps_fresh=True, socket=AT_HOME
+    )
+    result = classify(reading, TH)
+    assert result.bucket == "home"
+    assert result.confidence == MEDIUM
+
+
+def test_a_fix_naming_a_different_place_is_still_a_conflict() -> None:
+    """`other` is not a claim about a place. A work zone is."""
+    result = classify(ev(gps_zone="workplace", gps_fresh=True, socket=AT_HOME), TH)
+    assert result.verdict == CONFLICT
+    assert result.bucket == "unknown"
+
+
+def test_the_socket_may_not_overturn_the_house_meter() -> None:
+    """The ratio says the house did not supply it, so `home` is ruled out.
+
+    The socket gets no say on the house meter's own ground - the most it can do
+    here is stay quiet and let the energy sit in `unknown`.
+    """
+    result = classify(ev(house_ratio=Decimal("0.02"), socket=AT_HOME), TH)
+    assert result.bucket == "unknown"
+
+
+def test_the_socket_may_name_a_work_bucket_with_no_fix() -> None:
+    """Same ratio, but the socket names somewhere the ratio has not excluded."""
+    result = classify(ev(house_ratio=Decimal("0.02"), socket=AT_WORK), TH)
+    assert result.bucket == "workplace"
+
+
+def test_the_middle_band_needs_the_fix_to_agree() -> None:
+    """A ratio between the thresholds is not evidence either way.
+
+    The socket does not depend on the house meter, so it may speak - but only
+    where the fix does not contradict it.
+    """
+    middle = Decimal("0.45")
+    assert classify(ev(house_ratio=middle, socket=AT_HOME), TH).bucket == "home"
+    contradicted = ev(house_ratio=middle, gps_zone="workplace", socket=AT_HOME)
+    assert classify(contradicted, TH).bucket == "unknown"
+
+
+def test_no_socket_match_leaves_every_verdict_as_it_was() -> None:
+    """The signal declines far more often than it speaks, so silence must be
+    exactly the old behaviour rather than a new kind of answer."""
+    for reading in (
+        ev(gps_zone="other", gps_fresh=True),
+        ev(house_ratio=Decimal("1.6"), gps_zone="other"),
+        ev(house_ratio=Decimal("0.02")),
+        ev(house_ratio=Decimal("0.45")),
+    ):
+        assert classify(reading, TH) == classify(reading, TH)
+    assert classify(ev(gps_zone="other", gps_fresh=True), TH).bucket == "other"
+    assert classify(ev(house_ratio=Decimal("1.6"), gps_zone="other"), TH).verdict == CONFLICT
+
+
+def test_a_socket_alone_is_enough_to_place_but_not_to_sweep() -> None:
+    """No ratio, no fresh fix, just the socket: medium, never low or high."""
+    result = classify(ev(socket=AT_HOME), TH)
+    assert result.bucket == "home"
+    assert result.confidence == MEDIUM

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.0 — the socket counts as evidence
+
+Peak charging current was recorded from the start and explicitly barred from
+the decision, on the grounds that two places can own identical sockets. They
+can — and the new rule returns nothing when they do. What the original
+reasoning missed is that the other two signals fail *together*: a session too
+short for the house meter to prove anything is also one where a lagged GPS fix
+goes uncontested. Two sessions were filed wrongly that way inside a fortnight,
+both of them at home, both with the home socket's current sitting in the
+record.
+
+- **New `fingerprint.py`** — pure, like the rest of the decision logic. Matches
+  this session's peak current against the sockets already identified, by
+  nearest neighbour within a tolerance of 10% (floored at 0.8 A). It declines
+  on no usable reading, on a current no known socket draws, and — the case the
+  signal was once dismissed over — on a band that two different places both
+  occupy.
+- **Learned, never configured.** The install this was built from changed its
+  home socket from 10 A to 15 A mid-measurement; a hard-coded table written the
+  week before would have been wrong for every session after it. Only buckets
+  that name a place can teach, so `other` and `public_dc` contribute nothing.
+  A new install knows nothing and says so.
+- **Where it speaks**, in the classifier: against a fix reading `other` — which
+  is the fix landing in no known zone, not a claim about a place; alongside the
+  house meter against a fix that disagrees; and in place of a ratio that landed
+  between the thresholds, provided the fix does not contradict it. It never
+  overturns the house meter on the house meter's own ground.
+- **Confidence is capped at medium** whenever the socket had to win against a
+  fix that named somewhere, and when the socket is the only evidence there is.
+  `high` authorises the tail sweep — claiming energy that accrued before a
+  session was recognised — and a verdict reached over a protest does not get it.
+- Sessions now record `socket_fingerprint` and `socket_support`, so a verdict
+  can be re-argued later.
+
 ## 0.7.0 — first release
 
 Where your EV charged, what it cost, and what it saved.

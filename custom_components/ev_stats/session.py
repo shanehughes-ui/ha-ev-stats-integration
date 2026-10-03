@@ -54,6 +54,7 @@ from .classify import (
     classify,
 )
 from .buckets import ZERO
+from .fingerprint import SocketMatch, match as match_socket
 from .const import (
     BUCKET_HOME,
     BUCKET_UNKNOWN,
@@ -318,7 +319,23 @@ class SessionManager:
             gps_zone=self.runtime.location.zone(),
             gps_fresh=self.runtime.location.fresh,
             house_ratio=ratio,
+            socket=self.socket_match,
             work_buckets=self.runtime.work_buckets,
+        )
+
+    @property
+    def socket_match(self) -> SocketMatch | None:
+        """This session's current, resolved against the sockets already named.
+
+        Learned from the log on every read rather than cached, because the log
+        is what changes: correcting a session by hand is how a new socket gets
+        taught, and a cache would hold the pre-correction answer until a
+        restart.
+        """
+        return match_socket(
+            self.state.peak_amps,
+            self.runtime.logs.sessions(),
+            (BUCKET_HOME, *self.runtime.work_buckets),
         )
 
     @property
@@ -649,6 +666,14 @@ class SessionManager:
     ) -> dict[str, Any]:
         location = self.runtime.location
         at_home = verdict.bucket == BUCKET_HOME
+        # Off the snapshot, not `self.socket_match`: by the time this runs the
+        # live state has already been handed over. Computed before this session
+        # reaches the log, so it cannot match itself.
+        socket = match_socket(
+            snapshot.peak_amps,
+            self.runtime.logs.sessions(),
+            (BUCKET_HOME, *self.runtime.work_buckets),
+        )
         return {
             "id": dt_util.utcnow().strftime("%Y%m%d%H%M%S"),
             "start": started,
@@ -666,9 +691,16 @@ class SessionManager:
             "gps_fresh": location.fresh,
             "gps_stale_km": location.staleness_km,
             "peak_kw": snapshot.peak_kw,
-            # Corroboration only, never a classifier input: a 10 A socket at
-            # work fingerprints identically to a 10 A socket at home.
+            # A classifier input since 2026-10-03, through `fingerprint.py`,
+            # which declines to answer exactly when the collision this comment
+            # used to warn about actually occurs - a current band holding
+            # sessions from two different places.
             "peak_amps": snapshot.peak_amps,
+            # What the socket said, recorded so a verdict can be re-argued
+            # later and so the band a session joins is traceable to whatever
+            # named it.
+            "socket_fingerprint": socket.bucket if socket else None,
+            "socket_support": socket.support if socket else 0,
             "min_volts": (
                 snapshot.min_volts
                 if VOLTS_FLOOR < snapshot.min_volts < VOLTS_SENTINEL
