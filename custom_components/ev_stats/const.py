@@ -61,6 +61,7 @@ CONF_WORK_ZONES: Final = "work_zones"
 # Off by default: this integration ships dashboards meant to be shared, and a
 # home address is the most sensitive thing it could hold.
 CONF_RECORD_POSITIONS: Final = "record_positions"
+CONF_NAME_SUBURBS: Final = "name_suburbs"
 CONF_HOME_RADIUS_M: Final = "home_radius_m"
 CONF_WORK_RADIUS_M: Final = "work_radius_m"
 

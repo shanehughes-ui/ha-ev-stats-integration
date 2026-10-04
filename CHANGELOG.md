@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.9.0 — "Elsewhere" gets a name
+
+A trips table that reads `Elsewhere → Elsewhere` is accurate and tells you
+nothing. `not_home` means the car was outside every zone you have defined,
+which is most of the places it goes.
+
+- **New `suburb.py`** — pure: which field of a geocoder's answer to believe,
+  what counts as a position, and which ends of a trip are worth asking about.
+- **New `geocode.py`** — one GET to OpenStreetMap's Nominatim, no account and
+  no key. Answers are cached by coordinate rounded to ~110 m, so a place is
+  looked up once and a daily destination is free thereafter. Paced above
+  Nominatim's one-request-a-second limit, which only ever matters on a first
+  run over an existing log.
+- **Off by default, and gated on two separate options.** `record_positions`
+  keeps coordinates in the house; the new `name_suburbs` sends some of them out
+  of it. They are different decisions and are asked as two.
+- **Home and work coordinates are never sent anywhere.** Only an end that fell
+  outside every defined zone is looked up — the others already have names, so
+  there is nothing to ask. That is a test, not a comment.
+- A trip is recorded first and named afterwards, through a new
+  `async_annotate_trip`. A geocoder being slow or down must never delay or lose
+  a trip.
+- The panel shows the suburb in place of "Other" where one is known. A trip
+  that finished at home still reads "Home", never the suburb of the house.
+
 ## 0.8.0 — the socket counts as evidence
 
 Peak charging current was recorded from the start and explicitly barred from

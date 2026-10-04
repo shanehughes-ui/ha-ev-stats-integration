@@ -210,6 +210,25 @@ class LogStore:
         del self._trips[:-MAX_TRIPS]
         await self._async_persist()
 
+    async def async_annotate_trip(
+        self, trip_id: Any, fields: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Add to a trip already recorded, without rewriting it.
+
+        A suburb cannot be part of the original record: naming it costs a round
+        trip to a third party, and a trip has to be logged whether or not that
+        answers. So the trip lands first and the name catches up, the same
+        shape a session correction uses.
+        """
+        for record in self._trips:
+            if not _same_id(record.get("id"), trip_id):
+                continue
+            record.update(fields)
+            await self._async_persist()
+            self._notify()
+            return record
+        return None
+
     async def async_record_estimate(self, record: dict[str, Any]) -> None:
         self._estimates.append(dict(record))
         del self._estimates[:-MAX_ESTIMATES]

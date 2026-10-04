@@ -45,6 +45,7 @@ from .const import (
     CONF_NOTIFY_TARGET,
     CONF_ODOMETER,
     CONF_PETROL_L_PER_100KM,
+    CONF_NAME_SUBURBS,
     CONF_RECORD_POSITIONS,
     CONF_SECURITY_ENTITIES,
     CONF_SOLAR_CURTAILMENT,
@@ -176,6 +177,14 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                         vol.Optional(
                             CONF_RECORD_POSITIONS,
                             default=bool(loc.get(CONF_RECORD_POSITIONS, False)),
+                        ): selector.BooleanSelector(),
+                        # Depends on the one above having something to look up,
+                        # and is separate from it because they are different
+                        # decisions: one keeps coordinates in this house, the
+                        # other sends them out of it.
+                        vol.Optional(
+                            CONF_NAME_SUBURBS,
+                            default=bool(loc.get(CONF_NAME_SUBURBS, False)),
                         ): selector.BooleanSelector(),
                         opt(loc, CONF_HOME_RADIUS_M, DEFAULT_HOME_RADIUS_M): _number(
                             10, 1000, 5, "m"

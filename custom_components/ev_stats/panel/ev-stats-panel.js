@@ -575,7 +575,7 @@ class EvStatsPanel extends HTMLElement {
                     ? DASH
                     : fmt(t.soc_start - t.soc_end, 0)
                 }</td>
-                <td>${esc(pretty(t.ended_at) || DASH)}</td>
+                <td>${esc(t.to_suburb || pretty(t.ended_at) || DASH)}</td>
               </tr>`
             )
             .join("")}

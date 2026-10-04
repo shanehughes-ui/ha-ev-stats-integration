@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from .baseline import HouseBaseline, TyreBaseline
 from .derived import lowest_tyre
 from .classify import GPS_UNKNOWN
+from .geocode import Geocoder
 from .const import (
     BUCKET_HOME,
     BUCKET_OTHER,
@@ -26,6 +27,7 @@ from .const import (
     CONF_CHARGER_PLUG,
     CONF_INSTALL_ODOMETER,
     CONF_ODOMETER,
+    CONF_NAME_SUBURBS,
     CONF_RECORD_POSITIONS,
     CONF_TYRE_PRESSURE,
     CONF_TYRE_TEMPERATURE,
@@ -48,6 +50,7 @@ from .meters import RateMeters
 from .packsize import implied_capacity
 from .session import SessionManager
 from .store import LogStore
+from . import suburb
 from .trip import TripManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,6 +121,16 @@ class EvStatsRuntime:
         self.work_buckets = work_buckets(self.config)
         self.ledger = Ledger(hass, entry.entry_id, self.buckets)
         self.logs = LogStore(hass, entry.entry_id)
+        # None unless BOTH options are on: there is nothing to look up without
+        # positions, and nothing should be sent anywhere without being asked
+        # for. Every call site tests it for None rather than testing the two
+        # options again, so the decision is made exactly once.
+        self.geocoder: Geocoder | None = (
+            Geocoder(hass, entry.entry_id)
+            if self.config.opt(SECTION_LOCATION, CONF_RECORD_POSITIONS)
+            and self.config.opt(SECTION_LOCATION, CONF_NAME_SUBURBS)
+            else None
+        )
         self.charging_power_entity: str = self.config.required(CONF_CHARGING_POWER)
 
         self.charge_energy = SourceIntegrator(
@@ -158,6 +171,8 @@ class EvStatsRuntime:
         # the entire lifetime energy as an error.
         self.charge_energy.restore(self.ledger.last_total)
         await self.logs.async_load()
+        if self.geocoder is not None:
+            await self.geocoder.async_load()
         await self.meters.async_load()
         await self.location.async_load()
         await self.session.async_load()
@@ -303,7 +318,32 @@ class EvStatsRuntime:
         await self._async_maybe_measure_pack(record)
 
     async def _on_trip(self, event: Event) -> None:
-        await self.logs.async_record_trip(dict(event.data))
+        record = dict(event.data)
+        await self.logs.async_record_trip(record)
+        # Deliberately not awaited. A geocoder is a third party on the far side
+        # of the internet, and nothing about recording a trip should wait on
+        # one - or fail because of one.
+        if self.geocoder is not None:
+            self.hass.async_create_task(self._async_name_trip(record))
+
+    async def _async_name_trip(self, record: dict[str, Any]) -> None:
+        """Fill in the suburb at each end of a trip, where there is one.
+
+        `wanted` returns nothing for a trip between two known zones, which is
+        most of them, so this usually costs one dict lookup and no request.
+        """
+        if self.geocoder is None:
+            return
+        targets = suburb.wanted(record)
+        if not targets:
+            return
+        found = {}
+        for end, (lat, lon) in targets.items():
+            name = await self.geocoder.async_name(lat, lon)
+            if name:
+                found[f"{end}_suburb"] = name
+        if found:
+            await self.logs.async_annotate_trip(record.get("id"), found)
 
     async def _on_estimate(self, event: Event) -> None:
         await self.logs.async_record_estimate(dict(event.data))

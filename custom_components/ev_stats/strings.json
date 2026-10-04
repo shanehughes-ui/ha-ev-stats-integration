@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "EV Stats",
-        "description": "Only four entities are needed to start. Everything else \u00e2\u20ac\u201d house load, solar, prices, tyres, carbon \u00e2\u20ac\u201d is optional and is configured afterwards.",
+        "description": "Only four entities are needed to start. Everything else â€” house load, solar, prices, tyres, carbon â€” is optional and is configured afterwards.",
         "data": {
           "charging_power": "Charging power",
           "odometer": "Odometer",
@@ -62,11 +62,13 @@
               "work_zones": "Free-charging zones",
               "home_radius_m": "Home radius",
               "work_radius_m": "Free-zone radius",
-              "record_positions": "Record trip coordinates"
+              "record_positions": "Record trip coordinates",
+              "name_suburbs": "Name the suburb of each trip"
             },
             "data_description": {
-              "work_zones": "Zones where charging costs nothing \u00e2\u20ac\u201d a workplace charger, for instance. Each becomes its own bucket.",
-              "record_positions": "Off by default. With it on, each trip stores where it started and ended to the metre, which is what a route map needs - and what a shared dashboard would reveal about where you live."
+              "work_zones": "Zones where charging costs nothing â€” a workplace charger, for instance. Each becomes its own bucket.",
+              "record_positions": "Off by default. With it on, each trip stores where it started and ended to the metre, which is what a route map needs - and what a shared dashboard would reveal about where you live.",
+              "name_suburbs": "Off by default, and needs the option above. Sends the coordinates of trip ends that fall outside every zone you have defined to OpenStreetMap's Nominatim, to turn “Elsewhere” into a suburb name. Home and work are never sent - they already have names. Answers are cached, so a place is looked up once."
             }
           },
           "house": {
