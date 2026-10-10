@@ -87,6 +87,10 @@ LOG_DC_SESSION_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ENTRY): _entry_field(),
         vol.Required(ATTR_COST): vol.Coerce(float),
+        # Only needed when the car metered nothing, which on some platforms is
+        # every DC session. Omitted, the energy is assumed to be in the ledger
+        # already and only the price is attached.
+        vol.Optional(ATTR_KWH): vol.Coerce(float),
         vol.Optional(ATTR_SESSION): cv.string,
     }
 )
@@ -218,18 +222,39 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         }
 
     async def _log_dc_session(call: ServiceCall) -> ServiceResponse:
-        """Attach a price to charging that was billed at the pump.
+        """Attach a price - and, where it is needed, the energy - to a public charge.
 
-        The energy is already in the ledger - the car metered it like any
-        other. What no sensor here can know is what it cost, so this is the one
-        figure that has to be typed in.
+        What no sensor here can know is what it cost, so that figure always has
+        to be typed in.
+
+        Whether the ENERGY has to be typed in depends on the car. This was
+        written assuming it never did: the car meters a DC charge like any
+        other and only the price is missing. That assumption held until a real
+        DC session happened on 10 Oct 2026 and the car reported nothing
+        whatsoever - no charging power, so no integral, so no energy in any
+        bucket, while the cost went straight into the headline figures. Cost in,
+        energy out, which skews every kWh-weighted figure the same way: the
+        installation it was found on was overstating its free share by 5.8
+        points.
+
+        So `kwh` is optional, and means "the meter could not see this". Pass it
+        and the energy is filed through `async_add_unmetered`, which moves the
+        balance check's expectation by the same amount at the same time. Leave
+        it out and the old behaviour stands, which is right for any car that
+        does report DC.
         """
         runtime = _runtime(hass, call.data[ATTR_ENTRY])
         cost = _decimal(call.data[ATTR_COST], ATTR_COST)
         if cost <= ZERO:
             raise ServiceValidationError("A public charging session cost something")
 
-        await runtime.ledger.async_adjust(BUCKET_PUBLIC_DC, cost=cost)
+        kwh = call.data.get(ATTR_KWH)
+        if kwh is not None:
+            await runtime.ledger.async_add_unmetered(
+                BUCKET_PUBLIC_DC, _decimal(kwh, ATTR_KWH), cost=cost
+            )
+        else:
+            await runtime.ledger.async_adjust(BUCKET_PUBLIC_DC, cost=cost)
 
         session_id = call.data.get(ATTR_SESSION)
         if session_id:

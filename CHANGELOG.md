@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.0 — charging the meter never saw
+
+`log_dc_session` was written on the assumption that a public DC charge is
+already in the ledger, because the car meters it like any other, and only the
+price is missing. A real DC session proved that false: the car reported no
+charging power at all, so nothing was integrated, nothing reached a bucket —
+and the cost went into the headline figures anyway. Cost in, energy out, which
+skews every kWh-weighted figure the same way. The installation it was found on
+was overstating its free share by 5.8 points.
+
+- **`log_dc_session` takes an optional `kwh`**, meaning "the meter could not see
+  this". Omit it and the old behaviour stands, which is correct for any car that
+  does report DC.
+- **New `Ledger.async_add_unmetered`** — adds the energy to the bucket and moves
+  the balance check's expectation by the same amount, in one lock. Both sides or
+  neither.
+- **The invariant still reads zero, and still means something.** The new term is
+  not slack: it moves only through that one method. Any other path that puts
+  energy in a bucket without the meter seeing it still shows up as an error,
+  which is the entire point of the number.
+- `unmetered` is persisted alongside the balances. Coming back as zero after a
+  restart would report the whole DC charge as an error — the same shape of bug
+  the charge integrator's `restore` exists to prevent.
+
 ## 0.9.0 — "Elsewhere" gets a name
 
 A trips table that reads `Elsewhere → Elsewhere` is accurate and tells you

@@ -82,6 +82,16 @@ class Ledger:
         # cannot swallow an earlier unresolved one.
         self._floor: Decimal = ZERO
         self._last = Balance()
+        # Energy that is in a bucket but was never seen by the master meter.
+        #
+        # Normally there is no such thing - every kWh here arrived through the
+        # integrator, which is what makes the invariant checkable at all. A
+        # public DC charge can break that: a car that reports no charging power
+        # on DC meters nothing, so the only record of it is a figure typed in.
+        # Filing that into its bucket without recording it here would leave the
+        # balance check permanently non-zero, and an invariant that never reads
+        # zero is one nobody looks at any more.
+        self._unmetered: Decimal = ZERO
         self._listeners: list[Callable[[], None]] = []
 
     # ------------------------------------------------------------- reading --
@@ -122,9 +132,21 @@ class Ledger:
     def total_kwh(self) -> Decimal:
         return self.total().kwh
 
+    @property
+    def unmetered(self) -> Decimal:
+        """How much of the total the master meter could never account for."""
+        return self._unmetered
+
     def balance_check(self, metered_total: Decimal) -> Decimal:
-        """Buckets minus the master meter. Anything but zero is a bug."""
-        return self.total_kwh() - metered_total
+        """Buckets minus the master meter, minus what it could not see.
+
+        Anything but zero is still a bug. The third term is not slack: it moves
+        only through `async_add_unmetered`, which adds the identical figure to a
+        bucket at the same moment under the same lock. Any other path that puts
+        energy into a bucket without the meter seeing it still shows up here,
+        which is the whole point of the number.
+        """
+        return self.total_kwh() - self._unmetered - metered_total
 
     def add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(cb)
@@ -166,6 +188,7 @@ class Ledger:
         if self._route not in self._balances:
             self._route = BUCKET_UNKNOWN
         self._floor = Decimal(str(data.get("floor", "0")))
+        self._unmetered = Decimal(str(data.get("unmetered", "0")))
         self._last = Balance.from_dict(data.get("last", data.get("last_total", "0")))
 
     async def _async_persist(self) -> None:
@@ -174,6 +197,7 @@ class Ledger:
                 "balances": {b: v.as_dict() for b, v in self._balances.items()},
                 "route": self._route,
                 "floor": str(self._floor),
+                "unmetered": str(self._unmetered),
                 "last": self._last.as_dict(),
             }
         )
@@ -353,6 +377,42 @@ class Ledger:
                 current.kwh, current.cost + cost, current.solar_kwh + solar_kwh
             )
             await self._async_persist()
+        self._notify()
+
+    async def async_add_unmetered(
+        self,
+        bucket: str,
+        kwh: Decimal,
+        cost: Decimal = ZERO,
+    ) -> None:
+        """File energy the master meter never measured.
+
+        For charging the car does not report. On this platform a DC session
+        produces no charging power at all - every session on record reads
+        `supply: AC` - so there is nothing to integrate and the figure has to
+        come from whoever read the charger.
+
+        Both sides move together, under one lock, which is the only reason the
+        invariant survives it: the bucket gains the energy, and the balance
+        check is told to expect exactly that much more than the meter.
+        """
+        if bucket not in self._balances:
+            raise ServiceValidationError(f"Unknown bucket {bucket!r}")
+        if kwh <= ZERO:
+            raise ServiceValidationError("Unmetered energy has to be positive")
+        async with self._lock:
+            current = self._balances[bucket]
+            self._balances[bucket] = Balance(
+                current.kwh + kwh, current.cost + cost, current.solar_kwh
+            )
+            self._unmetered += kwh
+            await self._async_persist()
+        _LOGGER.info(
+            "Filed %s kWh of unmetered energy into %s (%s unmetered in total)",
+            kwh,
+            bucket,
+            self._unmetered,
+        )
         self._notify()
 
     async def async_set_floor(self, value: Decimal) -> None:

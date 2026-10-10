@@ -294,3 +294,103 @@ async def test_the_panel_never_blocks_the_rest(hass: HomeAssistant) -> None:
     panels = hass.data.get("frontend_panels", {})
     if "ev-stats" in panels:
         assert panels["ev-stats"].component_name == "custom"
+
+
+# ------------------------------------------- charging the meter never saw --
+async def test_a_dc_charge_the_car_never_metered(hass: HomeAssistant) -> None:
+    """Energy and price together, with the invariant still holding.
+
+    The case that prompted this: a real DC session on 10 Oct 2026 where the car
+    reported no charging power at all. Nothing was integrated, so nothing
+    reached a bucket - while the cost went straight into the headline figures.
+    Cost in, energy out, which skews every kWh-weighted figure the same way.
+    """
+    from decimal import Decimal
+
+    seed(hass)
+    entry = await setup_entry(hass)
+    runtime = hass.data[DOMAIN][entry.entry_id]
+
+    await runtime.ledger.async_accrue(Decimal("10.0"))
+    metered = Decimal("10.0")
+    assert runtime.ledger.balance_check(metered) == Decimal("0")
+
+    await hass.services.async_call(
+        DOMAIN,
+        "log_dc_session",
+        {"config_entry_id": entry.entry_id, "cost": 18.73, "kwh": 24.98},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert runtime.ledger.kwh("public_dc") == Decimal("24.98")
+    assert runtime.ledger.balance("public_dc").cost == Decimal("18.73")
+    # Lifetime energy now exceeds what the meter saw, by exactly the amount
+    # nobody could meter...
+    assert runtime.ledger.total_kwh() == Decimal("34.98")
+    assert runtime.ledger.unmetered == Decimal("24.98")
+    # ...and the invariant still reads zero, because both sides moved.
+    assert runtime.ledger.balance_check(metered) == Decimal("0")
+
+
+async def test_pricing_without_energy_leaves_the_buckets_alone(
+    hass: HomeAssistant,
+) -> None:
+    """A car that DOES meter its DC charging keeps the old behaviour.
+
+    `kwh` means "the meter could not see this". Omitting it must not quietly
+    invent energy on an installation where the energy is already there.
+    """
+    from decimal import Decimal
+
+    seed(hass)
+    entry = await setup_entry(hass)
+    runtime = hass.data[DOMAIN][entry.entry_id]
+
+    await runtime.ledger.async_accrue(Decimal("10.0"))
+    await hass.services.async_call(
+        DOMAIN,
+        "log_dc_session",
+        {"config_entry_id": entry.entry_id, "cost": 18.73},
+        blocking=True,
+        return_response=True,
+    )
+    assert runtime.ledger.kwh("public_dc") == Decimal("0")
+    assert runtime.ledger.unmetered == Decimal("0")
+    assert runtime.ledger.total_kwh() == Decimal("10.0")
+    assert runtime.ledger.balance_check(Decimal("10.0")) == Decimal("0")
+
+
+async def test_unmetered_energy_survives_a_reload(hass: HomeAssistant) -> None:
+    """Persisted, like the balances themselves.
+
+    If it came back as zero the balance check would report the whole DC charge
+    as an error on the next restart - the same shape of bug the charge
+    integrator's `restore` exists to prevent.
+    """
+    from decimal import Decimal
+
+    seed(hass)
+    entry = await setup_entry(hass)
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    await runtime.ledger.async_add_unmetered("public_dc", Decimal("24.98"))
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    revived = hass.data[DOMAIN][entry.entry_id]
+    assert revived.ledger.unmetered == Decimal("24.98")
+    assert revived.ledger.kwh("public_dc") == Decimal("24.98")
+
+
+async def test_unmetered_energy_must_be_positive(hass: HomeAssistant) -> None:
+    from decimal import Decimal
+
+    from homeassistant.exceptions import ServiceValidationError
+
+    seed(hass)
+    entry = await setup_entry(hass)
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    with pytest.raises(ServiceValidationError):
+        await runtime.ledger.async_add_unmetered("public_dc", Decimal("0"))
+    with pytest.raises(ServiceValidationError):
+        await runtime.ledger.async_add_unmetered("public_dc", Decimal("-5"))

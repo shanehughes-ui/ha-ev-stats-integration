@@ -330,6 +330,10 @@
         "session_id": {
           "name": "Session",
           "description": "Optional. Attaches the cost to one logged session as well as the total."
+        },
+        "kwh": {
+          "name": "Energy",
+          "description": "Only needed if your car reports no charging power on DC, in which case nothing was metered and the energy never reached a bucket. Leave empty if the car metered the session itself - then only the price is attached."
         }
       }
     },
