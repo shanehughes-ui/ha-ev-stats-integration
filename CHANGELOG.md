@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.1 — the balance check stops printing -0.0
+
+`Decimal` carries negative zero exactly as a float does, so a residue of
+-1e-7 rounds to `Decimal("-0.000")` and reaches a tile as "-0.0" — which reads
+as a fault on the one sensor whose entire job is to read zero. The value is
+zero; the sign is a rounding artefact.
+
+Latent here rather than observed: the YAML package this grew out of surfaced it
+first and this side had the identical shape waiting. Anything genuinely
+negative still shows its sign, which is the case that matters — a day earlier
+that same sensor read -24.98 and was how a whole missing DC charge got found.
+
 ## 0.10.0 — charging the meter never saw
 
 `log_dc_session` was written on the assumption that a public DC charge is
