@@ -208,9 +208,15 @@ class BalanceCheck(_LedgerEntity):
 
     @property
     def native_value(self) -> float:
-        return float(
+        balance = float(
             round(self._runtime.ledger.balance_check(self._runtime.charge_energy.total), 3)
         )
+        # Collapse negative zero. A residue of -1e-7 rounds to Decimal("-0.000")
+        # and reaches a tile as "-0.0", which reads as a fault on the one sensor
+        # whose entire job is to read zero. The value IS zero here; the sign is
+        # a rounding artefact and carries no information. Anything genuinely
+        # negative still shows its sign, which is the case that matters.
+        return balance if balance else 0.0
 
 
 class UnattributedFloor(_LedgerEntity):
