@@ -17,6 +17,7 @@ there is only the one.
 from __future__ import annotations
 
 import logging
+import time
 from decimal import Decimal
 
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
@@ -58,8 +59,9 @@ CO2_SUB_INTERVAL = 300.0
 CURTAILED_STATES = frozenset({"active", "on", "true", "curtailed", "curtailing"})
 
 STORE_VERSION = 1
-# Written at most this often. The totals move continuously and losing the
-# last few seconds of a rate to a hard restart is worth less than the disk.
+# Written about this often, at worst twice this. The totals move continuously,
+# and losing the last minute of a rate to a hard restart is worth less than the
+# disk.
 SAVE_DELAY_S = 60
 
 
@@ -70,6 +72,7 @@ class RateMeters:
         self.hass = hass
         self.runtime = runtime
         self._store: Store = Store(hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.meters")
+        self._save_due: float | None = None
         config = runtime.config
 
         self._pv = config.opt(SECTION_HOUSE, CONF_SOLAR_POWER)
@@ -156,7 +159,15 @@ class RateMeters:
         # Debounced by Store rather than written on every tick. The callback
         # runs off the event loop when the write finally happens, so it reads
         # only plain numbers already held here and never touches hass.
-        self._store.async_delay_save(self._snapshot, SAVE_DELAY_S)
+        #
+        # Re-armed against a FIXED deadline. `async_delay_save` restarts its
+        # timer on every call, and the meters tick every minute, so a plain
+        # 60 s delay never fired while they ran: the file was found a day
+        # stale, and an entry reload lost that day's petrol and carbon.
+        now = time.monotonic()
+        if self._save_due is None or now >= self._save_due:
+            self._save_due = now + SAVE_DELAY_S
+        self._store.async_delay_save(self._snapshot, self._save_due - now)
 
     def _snapshot(self) -> dict[str, str]:
         return {

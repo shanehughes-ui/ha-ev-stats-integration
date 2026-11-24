@@ -365,7 +365,7 @@ SPECS: tuple[DerivedSpec, ...] = (
     DerivedSpec(
         key="co2_avoided",
         value=lambda r: derive.carbon_avoided(
-            _distance(r),
+            r.carbon_distance,
             float(
                 r.config.opt(
                     SECTION_THRESHOLDS,
@@ -382,7 +382,7 @@ SPECS: tuple[DerivedSpec, ...] = (
         precision=1,
         requires=lambda r: r.meters.carbon is not None,
         attributes=lambda r: {
-            "km_counted": _distance(r),
+            "km_counted": r.carbon_distance,
             "charging_emitted": (
                 None
                 if r.meters.carbon_total is None

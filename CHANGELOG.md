@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.11.0 — the home wallbox's own meter
+
+A 7 kW home wallbox draws ~29 A, the same as the workplace socket, so the socket
+fingerprint abstains on that band and short home charges were left to GPS
+alone. On the installation this was found on, 8 of the last 22 sessions landed
+in `unknown` that way. The wallbox's own energy meter settles it directly.
+
+- **Wallbox evidence**, optional, under *The house*: the wallbox's lifetime
+  kWh meter and its charging sensor. The ratio is wallbox kWh ÷ car kWh over
+  the session, from 0.2 kWh.
+  - 0.6–1.6 → `home`, high confidence, above everything but DC. A fresh fix at
+    a work zone against it is a `conflict` (likely another car on the wallbox).
+  - Under 0.1 at over 20 A from 0.5 kWh → vetoes `home` to `conflict`, never
+    names a place. Off until the log holds one session the wallbox matched,
+    because silence only means absence once the meter is known to count.
+  - The chain beneath is unchanged: without a wallbox, every verdict is what
+    it was.
+- **Live routing** files a new session as `home` from the first minute while
+  the wallbox shows as charging, unless a fresh fix names a work zone.
+- Every session logs `wallbox_ratio`.
+- **`co2_start_odometer`** option: carbon avoided counts from there instead of
+  the install odometer, for when grid-carbon data began later.
+- **Fix: the meters file could go a day stale.** `Store.async_delay_save`
+  restarts its timer on every call and the rate meters tick every minute, so
+  the 60 s save never fired while they ran, and an entry reload lost the
+  petrol and carbon accrued since the last quiet minute. The save deadline is
+  now fixed from the first unsaved change: a write at least every two minutes.
+
 ## 0.10.1 — the balance check stops printing -0.0
 
 `Decimal` carries negative zero exactly as a float does, so a residue of

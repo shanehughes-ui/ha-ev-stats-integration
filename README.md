@@ -108,6 +108,7 @@ else", every single time.
 | Add this | And you get |
 |---|---|
 | House load | the house-supply proof, and a classifier that does not lean on GPS |
+| Home wallbox energy + charging | home proven by the charger's own meter, live routing to home |
 | Solar output | solar share, and charging priced at the feed-in it gave up |
 | Grid import price | cost, cost per 100 km, net saving |
 | Free-charging zones | a bucket per zone, free share, what free charging was worth |

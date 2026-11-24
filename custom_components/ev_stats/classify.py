@@ -21,6 +21,18 @@ Three signals, deliberately independent:
     is also one where a lagged GPS fix goes uncontested - and the current was
     in the record the whole time.
 
+A fourth, optional, sits above all three:
+
+  * **the home wallbox's own meter** - did the charger on the wall count the
+    energy the car says it took? A direct measurement rather than an inference,
+    with no baseline to subtract, so it answers from 0.2 kWh where the house
+    proof needs 2. Added because a 7 kW home wallbox draws the same ~29 A as the
+    workplace socket: the fingerprint abstains on that band, and short home
+    charges were left to GPS alone. It outranks everything but DC. It only
+    knows about the wallbox, though - a charge on some other socket at home
+    reads ~0 there - so ~0 counts against home only at a current nothing but
+    the wallbox supplies, and only once the wallbox has been seen to count.
+
 Where they disagree the answer is `conflict`, which files the energy as
 `unknown` rather than picking a winner. That is the point: an honest "I do not
 know" is recoverable with one tap on a notification, while a confident wrong
@@ -41,8 +53,10 @@ should not be believed harder.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
 from .const import (
     BUCKET_HOME,
@@ -68,6 +82,21 @@ GPS_OTHER = BUCKET_OTHER
 
 SUPPLY_AC = "AC"
 SUPPLY_DC = "DC"
+
+# Wallbox kWh / car kWh. ~1.0 is the car on the wallbox: it reads a few percent
+# over the car, which meters at its AC inlet. The upper bound matters - a second
+# car on the wallbox at the same time pushes it well past 1, and that proves
+# nothing about this one.
+WALLBOX_YES_MIN = 0.6
+WALLBOX_YES_MAX = 1.6
+# Below this much car energy the ratio is not computed at all.
+WALLBOX_MIN_KWH = 0.2
+# ~Nothing metered, at a current only the wallbox supplies at home (the old
+# sockets drew 7-15 A), from enough energy for silence to mean absence.
+WALLBOX_NO = 0.10
+WALLBOX_NO_MIN_AMPS = 20.0
+WALLBOX_NO_MIN_KWH = 0.5
+WALLBOX_AWAY = "away"
 
 
 @dataclass(frozen=True)
@@ -103,6 +132,14 @@ class Evidence:
     # socket on record that draws this, or two places that both do.
     socket: SocketMatch | None = None
     work_buckets: tuple[str, ...] = field(default_factory=tuple)
+    # Wallbox kWh over car kWh. None when there is no wallbox configured, it was
+    # unreadable when the session opened, or the car has taken under 0.2 kWh.
+    wallbox_ratio: Decimal | None = None
+    # Whether the log already holds a session the wallbox matched. See
+    # `wallbox_proven`.
+    wallbox_proven: bool = False
+    peak_amps: float = 0.0
+    kwh: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -157,8 +194,93 @@ def _capped(confidence: str) -> str:
     return CONFIDENCE_MEDIUM if confidence == CONFIDENCE_HIGH else confidence
 
 
+def _number(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _wallbox_matched(ratio: float | None) -> bool:
+    return ratio is not None and WALLBOX_YES_MIN <= ratio <= WALLBOX_YES_MAX
+
+
+def wallbox_proven(sessions: Iterable[Mapping[str, Any]]) -> bool:
+    """Has the wallbox's meter ever been seen to count during a charge?
+
+    The `away` veto reads silence as absence, which is only safe once the meter
+    is known to count mid-charge. If it only filled in at the end, every home
+    charge would look like `away`. So the veto stays off until the log holds one
+    session where the wallbox matched the car. `home` needs no such proof: a
+    broken meter cannot fake ~1.0.
+    """
+    return any(_wallbox_matched(_number(s.get("wallbox_ratio"))) for s in sessions)
+
+
+def _wallbox(ev: Evidence) -> str | None:
+    """`home`, `away`, or no opinion."""
+    ratio = _number(ev.wallbox_ratio)
+    if _wallbox_matched(ratio):
+        return BUCKET_HOME
+    if (
+        ratio is not None
+        and ratio < WALLBOX_NO
+        and ev.wallbox_proven
+        and ev.peak_amps > WALLBOX_NO_MIN_AMPS
+        and ev.kwh >= WALLBOX_NO_MIN_KWH
+    ):
+        return WALLBOX_AWAY
+    return None
+
+
 def classify(ev: Evidence, th: Thresholds) -> Classification:
     """Decide where a session happened.
+
+    The chain below the wallbox runs exactly as it did before the wallbox
+    existed, and the wallbox is applied to its answer. It outranks everything
+    but the DC rule, which it cannot co-occur with.
+    """
+    verdict = _classify_without_wallbox(ev, th)
+    if verdict.verdict == VERDICT_IDLE or verdict.bucket == BUCKET_PUBLIC_DC:
+        return verdict
+
+    wallbox = _wallbox(ev)
+    if wallbox == BUCKET_HOME:
+        ratio = float(ev.wallbox_ratio)
+        if ev.gps_zone in ev.work_buckets:
+            # Two strong signals disagreeing is a conflict, not a coin toss -
+            # the likely story is another car on the wallbox at a matching
+            # rate. A fix reading `other` is what a lagged fix produces, and
+            # that one the wallbox beats.
+            return Classification(
+                VERDICT_CONFLICT,
+                BUCKET_UNKNOWN,
+                verdict.confidence,
+                f"the home wallbox metered {ratio:.0%} of it "
+                f"but the car was at {ev.gps_zone}",
+            )
+        return Classification(
+            BUCKET_HOME,
+            BUCKET_HOME,
+            CONFIDENCE_HIGH,
+            f"the home wallbox metered {ratio:.0%} of it",
+        )
+    if wallbox == WALLBOX_AWAY and verdict.bucket == BUCKET_HOME:
+        # It only ever vetoes. It never names a place, because public AC
+        # chargers draw 28 A too. Without it, a lagged fix reading `home` on a
+        # short work charge was filed home unopposed.
+        return Classification(
+            VERDICT_CONFLICT,
+            BUCKET_UNKNOWN,
+            verdict.confidence,
+            f"{verdict.reason}, but the home wallbox metered none of "
+            f"a {ev.peak_amps:.0f} A charge",
+        )
+    return verdict
+
+
+def _classify_without_wallbox(ev: Evidence, th: Thresholds) -> Classification:
+    """The house meter, the fix and the socket.
 
     Order matters. DC is checked first because it is the only signal that
     identifies a place by what the place *is* rather than by where the car is:
