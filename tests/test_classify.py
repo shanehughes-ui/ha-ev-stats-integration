@@ -303,3 +303,105 @@ def test_a_socket_alone_is_enough_to_place_but_not_to_sweep() -> None:
     result = classify(ev(socket=AT_HOME), TH)
     assert result.bucket == "home"
     assert result.confidence == MEDIUM
+
+
+# --------------------------------------------------------------- the wallbox --
+# The home wallbox's own meter, as wallbox kWh / car kWh. A 7 kW wallbox draws
+# the same ~29 A as the workplace socket, so on that band the fingerprint
+# abstains and short home charges were left to GPS alone.
+AMBIGUOUS = SocketMatch("workplace", 14, "the socket drew 28.9 A, which matches 14 sessions at workplace")
+
+
+def test_first_7kw_home_charge_is_home() -> None:
+    """1.7 kWh in 19 minutes: no house proof, the fix said home and the socket
+    said work, so it was filed `conflict`. The wallbox metered it."""
+    reading = ev(
+        gps_zone="home", gps_fresh=True, socket=AMBIGUOUS,
+        wallbox_ratio=Decimal("1.03"), peak_amps=28.9, kwh=1.7,
+    )
+    before = classify(Evidence(**{**reading.__dict__, "wallbox_ratio": None}), TH)
+    assert before.verdict == CONFLICT
+    result = classify(reading, TH)
+    assert result.bucket == "home"
+    assert result.confidence == HIGH
+
+
+def test_the_wallbox_outranks_a_stale_fix_and_a_middling_ratio() -> None:
+    for reading in (
+        ev(wallbox_ratio=Decimal("1.01"), kwh=25.9),
+        ev(house_ratio=Decimal("0.45"), wallbox_ratio=Decimal("1.0"), kwh=8),
+        ev(gps_zone="other", gps_fresh=True, wallbox_ratio=Decimal("0.98"), kwh=3),
+    ):
+        result = classify(reading, TH)
+        assert (result.bucket, result.confidence) == ("home", HIGH), reading
+
+
+def test_the_wallbox_against_a_fresh_work_fix_is_a_conflict() -> None:
+    """Most likely another car on the wallbox at a matching rate."""
+    result = classify(
+        ev(gps_zone="workplace", gps_fresh=True, wallbox_ratio=Decimal("1.0"), kwh=5),
+        TH,
+    )
+    assert result.verdict == CONFLICT
+
+
+def test_dc_still_beats_the_wallbox() -> None:
+    result = classify(
+        ev(supply="DC", peak_kw=50, wallbox_ratio=Decimal("1.0"), kwh=20), TH
+    )
+    assert result.bucket == "public_dc"
+
+
+def test_a_ratio_past_the_band_is_no_proof() -> None:
+    """Two cars on the wallbox at once: no opinion, the old chain decides."""
+    result = classify(
+        ev(gps_zone="workplace", gps_fresh=True, wallbox_ratio=Decimal("2.1"), kwh=5),
+        TH,
+    )
+    assert result.bucket == "workplace"
+
+
+def _silent(**kwargs):
+    base = dict(
+        gps_zone="home", gps_fresh=True, wallbox_ratio=Decimal("0.0"),
+        wallbox_proven=True, peak_amps=28.5, kwh=0.8,
+    )
+    return ev(**{**base, **kwargs})
+
+
+def test_a_silent_wallbox_vetoes_home_at_wallbox_current() -> None:
+    """A lagged fix reading `home` on a short 28 A work charge."""
+    result = classify(_silent(), TH)
+    assert result.verdict == CONFLICT
+    assert result.bucket == "unknown"
+
+
+def test_the_veto_needs_every_condition() -> None:
+    for reading in (
+        _silent(wallbox_proven=False),  # never seen the meter count
+        _silent(peak_amps=15.1),        # an old socket at home
+        _silent(kwh=0.3),               # too little to mean anything
+        _silent(wallbox_ratio=Decimal("0.2")),
+        _silent(wallbox_ratio=None),
+    ):
+        assert classify(reading, TH).bucket == "home", reading
+
+
+def test_the_veto_never_names_a_place() -> None:
+    """28 A public AC chargers exist, so a silent wallbox only says `not home`."""
+    assert classify(_silent(gps_zone="other"), TH).bucket == "other"
+    assert classify(_silent(gps_zone="unknown", gps_fresh=False), TH).bucket == "unknown"
+
+
+def test_without_a_wallbox_nothing_changes() -> None:
+    reading = ev(gps_zone="home", gps_fresh=True, socket=AMBIGUOUS)
+    assert classify(reading, TH).verdict == CONFLICT
+
+
+def test_wallbox_proven_needs_one_matched_session() -> None:
+    proven = classify_mod.wallbox_proven
+    assert not proven([])
+    assert not proven([{"wallbox_ratio": None}, {"wallbox_ratio": 0.0}, {}])
+    # The YAML package logs unreadable values as strings.
+    assert not proven([{"wallbox_ratio": "unknown"}, {"wallbox_ratio": 2.4}])
+    assert proven([{"wallbox_ratio": 0.0}, {"wallbox_ratio": 1.027}])

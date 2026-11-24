@@ -77,7 +77,13 @@
             "data": {
               "house_load": "House load",
               "solar_power": "Solar output",
-              "solar_curtailment": "Solar curtailment"
+              "solar_curtailment": "Solar curtailment",
+              "wallbox_energy": "Home wallbox energy meter",
+              "wallbox_charging": "Home wallbox charging"
+            },
+            "data_description": {
+              "wallbox_energy": "The wallbox's own lifetime kWh. A charge it metered is home, unless a fresh fix puts the car at a work zone.",
+              "wallbox_charging": "On while the wallbox is charging. Routes a new session to home from the first minute."
             }
           },
           "pricing": {
@@ -114,12 +120,14 @@
               "dc_min_kw": "DC power threshold",
               "charge_efficiency": "Charging efficiency",
               "petrol_l_per_100km": "Petrol car consumption",
-              "install_odometer": "Odometer at install"
+              "install_odometer": "Odometer at install",
+              "co2_start_odometer": "Odometer when carbon data began"
             },
             "data_description": {
               "min_kwh": "Below this the house-load test is noise, so it declines to answer rather than guessing.",
               "charge_efficiency": "Wall to pack. Cancels out of a degradation trend, so its exact value matters less than its consistency.",
-              "install_odometer": "Set this to the odometer reading now. Consumption is measured from here, not from the car's whole life."
+              "install_odometer": "Set this to the odometer reading now. Consumption is measured from here, not from the car's whole life.",
+              "co2_start_odometer": "Carbon avoided counts from here. Empty: from the install odometer."
             }
           }
         }

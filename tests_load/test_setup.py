@@ -394,3 +394,74 @@ async def test_unmetered_energy_must_be_positive(hass: HomeAssistant) -> None:
         await runtime.ledger.async_add_unmetered("public_dc", Decimal("0"))
     with pytest.raises(ServiceValidationError):
         await runtime.ledger.async_add_unmetered("public_dc", Decimal("-5"))
+
+
+# -------------------------------------------------------------- the wallbox --
+WALLBOX_ENERGY = "sensor.wallbox_energy"
+WALLBOX_CHARGING = "binary_sensor.wallbox_charging"
+
+
+async def test_a_charge_the_wallbox_metered_is_home(hass: HomeAssistant) -> None:
+    """Routed home live while the wallbox charges, and filed home at the close
+    by its meter alone - no fix, no house meter, no socket."""
+    from decimal import Decimal
+
+    from custom_components.ev_stats.const import (
+        CONF_WALLBOX_CHARGING,
+        CONF_WALLBOX_ENERGY,
+        EVENT_SESSION_RECORDED,
+    )
+
+    seed(hass)
+    hass.states.async_set(WALLBOX_ENERGY, "100.0", {"unit_of_measurement": "kWh"})
+    hass.states.async_set(WALLBOX_CHARGING, "on")
+    entry = await setup_entry(
+        hass,
+        {
+            SECTION_HOUSE: {
+                CONF_WALLBOX_ENERGY: WALLBOX_ENERGY,
+                CONF_WALLBOX_CHARGING: WALLBOX_CHARGING,
+            }
+        },
+    )
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    recorded = []
+    hass.bus.async_listen(EVENT_SESSION_RECORDED, lambda e: recorded.append(e.data))
+
+    await runtime.session.async_open()
+    assert runtime.session.state.routed_to == "home"
+    assert runtime.session.state.start_wallbox_energy == Decimal("100.0")
+
+    runtime.charge_energy.restore(runtime.charge_energy.total + Decimal("2.0"))
+    hass.states.async_set(WALLBOX_ENERGY, "102.06", {"unit_of_measurement": "kWh"})
+    assert runtime.session.wallbox_ratio == Decimal("1.030")
+
+    await runtime.session.async_close()
+    await hass.async_block_till_done()
+    assert recorded[-1]["bucket"] == "home"
+    assert recorded[-1]["confidence"] == "high"
+    assert recorded[-1]["wallbox_ratio"] == 1.03
+
+
+async def test_the_meters_save_is_not_postponed_for_ever(
+    hass: HomeAssistant, monkeypatch
+) -> None:
+    """Store restarts its delay on every call, and the meters tick every
+    minute - so a plain 60 s delay never fired while they ran."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from custom_components.ev_stats import meters as meters_mod
+
+    seed(hass)
+    entry = await setup_entry(hass)
+    meters = hass.data[DOMAIN][entry.entry_id].meters
+    delays = []
+    monkeypatch.setattr(
+        meters._store, "async_delay_save", lambda _f, delay: delays.append(delay)
+    )
+    clock = iter([1000.0, 1030.0, 1059.0, 1061.0])
+    monkeypatch.setattr(meters_mod, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    for _ in range(4):
+        meters._changed(Decimal(0))
+    assert delays == [60.0, 30.0, 1.0, 60.0]

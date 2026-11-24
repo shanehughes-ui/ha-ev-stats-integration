@@ -25,6 +25,7 @@ from .const import (
     CONF_CHARGER_PLUG,
     CONF_CHARGING_POWER,
     CONF_CO2_INTENSITY,
+    CONF_CO2_START_ODOMETER,
     CONF_DAYS_TO_SERVICE,
     CONF_DC_MIN_KW,
     CONF_DEVICE_TRACKER,
@@ -54,6 +55,8 @@ from .const import (
     CONF_TRIP_CONSUMPTION,
     CONF_TYRE_PRESSURE,
     CONF_TYRE_TEMPERATURE,
+    CONF_WALLBOX_CHARGING,
+    CONF_WALLBOX_ENERGY,
     CONF_WORK_RADIUS_M,
     CONF_WORK_ZONES,
     DEFAULT_CHARGE_EFFICIENCY,
@@ -202,6 +205,8 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                         opt(house, CONF_HOUSE_LOAD): _sensor("power"),
                         opt(house, CONF_SOLAR_POWER): _sensor("power"),
                         opt(house, CONF_SOLAR_CURTAILMENT): _sensor(),
+                        opt(house, CONF_WALLBOX_ENERGY): _sensor("energy"),
+                        opt(house, CONF_WALLBOX_CHARGING): _entity("binary_sensor"),
                     }
                 ),
                 {"collapsed": True},
@@ -261,6 +266,9 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                             ),
                         ): _number(3, 25, 0.1, "L/100km"),
                         opt(thr, CONF_INSTALL_ODOMETER): _number(0, 1_000_000, 1, "km"),
+                        opt(thr, CONF_CO2_START_ODOMETER): _number(
+                            0, 1_000_000, 1, "km"
+                        ),
                     }
                 ),
                 {"collapsed": True},

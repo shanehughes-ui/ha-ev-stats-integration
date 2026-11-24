@@ -48,10 +48,12 @@ from .classify import (
     CONFIDENCE_HIGH,
     SUPPLY_AC,
     SUPPLY_DC,
+    WALLBOX_MIN_KWH,
     Classification,
     Evidence,
     Thresholds,
     classify,
+    wallbox_proven,
 )
 from .buckets import ZERO
 from .fingerprint import SocketMatch, match as match_socket
@@ -69,6 +71,8 @@ from .const import (
     CONF_MIN_HOURS,
     CONF_MIN_KWH,
     CONF_SUPPLY_SOURCE,
+    CONF_WALLBOX_CHARGING,
+    CONF_WALLBOX_ENERGY,
     DEFAULT_DC_MIN_KW,
     DEFAULT_HOME_RATIO_NO,
     DEFAULT_HOME_RATIO_YES,
@@ -79,6 +83,7 @@ from .const import (
     END_DEBOUNCE_S,
     EVENT_SESSION_RECORDED,
     SECTION_CAR,
+    SECTION_HOUSE,
     SECTION_THRESHOLDS,
     START_DEBOUNCE_S,
     STUCK_SESSION_S,
@@ -126,6 +131,9 @@ class SessionState:
     # are priced before the place is known.
     start_cost: Decimal = Decimal(0)
     start_solar: Decimal = Decimal(0)
+    # None when no wallbox is configured or it was unreadable at the open: the
+    # whole session then has no wallbox evidence, rather than a wrong number.
+    start_wallbox_energy: Decimal | None = None
     start_soc: float | None = None
     peak_kw: float = 0.0
     peak_amps: float = 0.0
@@ -142,6 +150,11 @@ class SessionState:
             "start_house_energy": str(self.start_house_energy),
             "start_cost": str(self.start_cost),
             "start_solar": str(self.start_solar),
+            "start_wallbox_energy": (
+                None
+                if self.start_wallbox_energy is None
+                else str(self.start_wallbox_energy)
+            ),
             "start_soc": self.start_soc,
             "peak_kw": self.peak_kw,
             "peak_amps": self.peak_amps,
@@ -160,6 +173,11 @@ class SessionState:
             start_house_energy=Decimal(str(data.get("start_house_energy", "0"))),
             start_cost=Decimal(str(data.get("start_cost", "0"))),
             start_solar=Decimal(str(data.get("start_solar", "0"))),
+            start_wallbox_energy=(
+                None
+                if data.get("start_wallbox_energy") is None
+                else Decimal(str(data["start_wallbox_energy"]))
+            ),
             start_soc=data.get("start_soc"),
             peak_kw=float(data.get("peak_kw", 0.0)),
             peak_amps=float(data.get("peak_amps", 0.0)),
@@ -301,12 +319,40 @@ class SessionManager:
         expected = Decimal(str(median)) * Decimal(str(hours))
         return ((house - expected) / car).quantize(Decimal("0.001"))
 
+    def _wallbox_reading(self) -> Decimal | None:
+        value = numeric_state(
+            self.hass, self.config.opt(SECTION_HOUSE, CONF_WALLBOX_ENERGY)
+        )
+        return None if value is None else Decimal(str(value))
+
+    @property
+    def wallbox_ratio(self) -> Decimal | None:
+        """How much of the car's energy the home wallbox's own meter counted.
+
+        A direct meter, so there is no baseline to subtract and it can answer
+        from 0.2 kWh. Clamped at zero, as a meter that steps backwards is not
+        evidence the car charged somewhere else.
+        """
+        start = self.state.start_wallbox_energy
+        now = self._wallbox_reading()
+        car = self.session_kwh
+        if (
+            not self.state.active
+            or start is None
+            or now is None
+            or car < Decimal(str(WALLBOX_MIN_KWH))
+        ):
+            return None
+        return (max(now - start, ZERO) / car).quantize(Decimal("0.001"))
+
     @property
     def evidence(self) -> Evidence:
-        return self.evidence_with(self.house_ratio)
+        return self.evidence_with(self.house_ratio, self.wallbox_ratio)
 
-    def evidence_with(self, ratio: Decimal | None) -> Evidence:
-        """Assemble the evidence around an already-computed ratio.
+    def evidence_with(
+        self, ratio: Decimal | None, wallbox: Decimal | None
+    ) -> Evidence:
+        """Assemble the evidence around already-computed ratios.
 
         Split out because the ratio walks a day of samples and the closing path
         needs both it and the verdict; going through the property twice would
@@ -321,6 +367,13 @@ class SessionManager:
             house_ratio=ratio,
             socket=self.socket_match,
             work_buckets=self.runtime.work_buckets,
+            wallbox_ratio=wallbox,
+            # Only worth walking the log when there is a ratio to weigh.
+            wallbox_proven=(
+                wallbox is not None and wallbox_proven(self.runtime.logs.sessions())
+            ),
+            peak_amps=self.state.peak_amps,
+            kwh=float(self.session_kwh),
         )
 
     @property
@@ -524,6 +577,7 @@ class SessionManager:
                 start_house_energy=house_total,
                 start_cost=self.runtime.meters.cost_total or Decimal(0),
                 start_solar=self.runtime.meters.solar_total or Decimal(0),
+                start_wallbox_energy=self._wallbox_reading(),
                 start_soc=numeric_state(self.hass, self.config.required(CONF_BATTERY)),
                 peak_kw=round(power, 3),
                 # Flags are passed in rather than written afterwards. Setting
@@ -548,12 +602,21 @@ class SessionManager:
     def _live_route(self) -> str:
         """Where to file energy from the first minute, if anywhere.
 
-        Only on a fresh fix, and only to a place that has a bucket. Everything
-        else stays `unknown`, which remains the default rather than a fallback.
+        Home if the home wallbox shows as charging - the car's power has been
+        on for a minute by now - unless a fresh fix names a workplace: that is
+        another car on the wallbox, and the closing verdict calls it a
+        conflict anyway. Otherwise only on a fresh fix, and only to a place
+        that has a bucket. Everything else stays `unknown`, which remains the
+        default rather than a fallback.
         """
+        zone = self.runtime.location.zone()  # `unknown` unless fresh
+        wallbox = string_state(
+            self.hass, self.config.opt(SECTION_HOUSE, CONF_WALLBOX_CHARGING)
+        )
+        if wallbox == "on" and zone not in self.runtime.work_buckets:
+            return BUCKET_HOME
         if not self.runtime.location.fresh:
             return BUCKET_UNKNOWN
-        zone = self.runtime.location.zone()
         return zone if zone in self.runtime.ledger.buckets else BUCKET_UNKNOWN
 
     async def async_close(self, flags: list[str] | None = None) -> None:
@@ -568,7 +631,8 @@ class SessionManager:
             # of these is meaningless the moment the state is reset, and the
             # ratio is expensive enough that asking twice would also be waste.
             ratio = self.house_ratio
-            verdict = classify(self.evidence_with(ratio), self.thresholds)
+            wallbox = self.wallbox_ratio
+            verdict = classify(self.evidence_with(ratio, wallbox), self.thresholds)
             kwh = self.session_kwh
             routed = self.state.routed_to
             soc_now = numeric_state(self.hass, self.config.required(CONF_BATTERY))
@@ -628,6 +692,7 @@ class SessionManager:
                 kwh,
                 swept,
                 ratio,
+                wallbox,
                 soc_delta,
                 started,
                 state_snapshot,
@@ -658,6 +723,7 @@ class SessionManager:
         kwh: Decimal,
         swept: Decimal,
         ratio: Decimal | None,
+        wallbox: Decimal | None,
         soc_delta: float | None,
         started: str | None,
         snapshot: SessionState,
@@ -687,6 +753,9 @@ class SessionManager:
             # and strong finding - the house supplied none of it - and testing
             # it for truth would log that as "no opinion".
             "home_ratio": None if ratio is None else float(ratio),
+            # Logged for every session, and the logged values are what switch
+            # the wallbox's `away` veto on - see `classify.wallbox_proven`.
+            "wallbox_ratio": None if wallbox is None else float(wallbox),
             "gps_zone": location.zone(),
             "gps_fresh": location.fresh,
             "gps_stale_km": location.staleness_km,

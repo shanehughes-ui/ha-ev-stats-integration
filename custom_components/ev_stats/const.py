@@ -69,6 +69,10 @@ CONF_WORK_RADIUS_M: Final = "work_radius_m"
 CONF_HOUSE_LOAD: Final = "house_load"
 CONF_SOLAR_POWER: Final = "solar_power"
 CONF_SOLAR_CURTAILMENT: Final = "solar_curtailment"
+# A home wallbox's own lifetime energy meter, and whether it is charging now.
+# The meter proves a charge happened here; see `classify.py`.
+CONF_WALLBOX_ENERGY: Final = "wallbox_energy"
+CONF_WALLBOX_CHARGING: Final = "wallbox_charging"
 
 # --- pricing ----------------------------------------------------------------
 CONF_IMPORT_PRICE: Final = "import_price"
@@ -89,6 +93,8 @@ CONF_DC_MIN_KW: Final = "dc_min_kw"
 CONF_CHARGE_EFFICIENCY: Final = "charge_efficiency"
 CONF_PETROL_L_PER_100KM: Final = "petrol_l_per_100km"
 CONF_INSTALL_ODOMETER: Final = "install_odometer"
+# Where carbon avoided counts from, when grid-carbon data began after install.
+CONF_CO2_START_ODOMETER: Final = "co2_start_odometer"
 
 DEFAULT_HOME_RATIO_YES: Final = 0.60
 DEFAULT_HOME_RATIO_NO: Final = 0.25

@@ -25,6 +25,7 @@ from .const import (
     CONF_CHARGING_POWER,
     CONF_HOUSE_LOAD,
     CONF_CHARGER_PLUG,
+    CONF_CO2_START_ODOMETER,
     CONF_INSTALL_ODOMETER,
     CONF_ODOMETER,
     CONF_NAME_SUBURBS,
@@ -263,11 +264,26 @@ class EvStatsRuntime:
         against a car's entire history would be wrong by a factor of three and
         would look entirely plausible.
         """
+        return self._distance_from(CONF_INSTALL_ODOMETER)
+
+    @property
+    def carbon_distance(self) -> float | None:
+        """Distance the carbon comparison counts.
+
+        From `co2_start_odometer` when set - grid-carbon data can begin after
+        install, and counting petrol carbon for kilometres whose charging carbon
+        was never metered would overstate what was avoided.
+        """
+        if self.config.opt(SECTION_THRESHOLDS, CONF_CO2_START_ODOMETER) is None:
+            return self.distance_since_install
+        return self._distance_from(CONF_CO2_START_ODOMETER)
+
+    def _distance_from(self, key: str) -> float | None:
         odo = numeric_state(self.hass, self.config.required(CONF_ODOMETER))
-        install = self.config.opt(SECTION_THRESHOLDS, CONF_INSTALL_ODOMETER)
-        if odo is None or install is None:
+        start = self.config.opt(SECTION_THRESHOLDS, key)
+        if odo is None or start is None:
             return None
-        return max(round(odo - float(install), 1), 0.0)
+        return max(round(odo - float(start), 1), 0.0)
 
     @property
     def days_since_install(self) -> float | None:
