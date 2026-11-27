@@ -3,8 +3,8 @@
 **Where your EV charged, what it cost, and what it saved — with an answer for
 every kilowatt-hour.**
 
-[![Validate](https://github.com/shanehughes-ui/ha-ev-stats-integration/actions/workflows/validate.yml/badge.svg)](https://github.com/shanehughes-ui/ha-ev-stats-integration/actions/workflows/validate.yml)
-[![Tests](https://github.com/shanehughes-ui/ha-ev-stats-integration/actions/workflows/test.yml/badge.svg)](https://github.com/shanehughes-ui/ha-ev-stats-integration/actions/workflows/test.yml)
+[![Validate](https://github.com/sh-projects-max1/ha-ev-stats-integration/actions/workflows/validate.yml/badge.svg)](https://github.com/sh-projects-max1/ha-ev-stats-integration/actions/workflows/validate.yml)
+[![Tests](https://github.com/sh-projects-max1/ha-ev-stats-integration/actions/workflows/test.yml/badge.svg)](https://github.com/sh-projects-max1/ha-ev-stats-integration/actions/workflows/test.yml)
 [![hacs](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz)
 
 Most EV energy tracking answers *how much*. This answers *where* — and then
@@ -77,7 +77,7 @@ than reproduced by driving somewhere.
 ### HACS (custom repository)
 
 1. HACS → ⋮ → **Custom repositories**
-2. Add `https://github.com/shanehughes-ui/ha-ev-stats-integration`, category
+2. Add `https://github.com/sh-projects-max1/ha-ev-stats-integration`, category
    **Integration**
 3. Install, restart Home Assistant
 4. **Settings → Devices & Services → Add Integration → EV Stats**

@@ -7,17 +7,17 @@
     "recorder"
   ],
   "codeowners": [
-    "@shanehughes-ui"
+    "@sh-projects-max"
   ],
   "config_flow": true,
   "dependencies": [
     "http",
     "websocket_api"
   ],
-  "documentation": "https://github.com/shanehughes-ui/ha-ev-stats-integration",
+  "documentation": "https://github.com/sh-projects-max1/ha-ev-stats-integration",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/shanehughes-ui/ha-ev-stats-integration/issues",
+  "issue_tracker": "https://github.com/sh-projects-max1/ha-ev-stats-integration/issues",
   "requirements": [],
   "version": "0.11.0"
 }
